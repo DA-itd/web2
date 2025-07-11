@@ -1,0 +1,564 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Certificate Validator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- SheetJS for reading Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/jspdf@latest/dist/jspdf.umd.min.js"></script>
+    <style>
+        @keyframes fade-in {
+            0% {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .animate-fade-in {
+            animation: fade-in 0.5s ease-out forwards;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+// ============================================================================
+// UTILS & TYPES
+// ============================================================================
+
+const ValidationStatus = {
+  IDLE: 'idle',
+  SUCCESS: 'success',
+  NOT_FOUND: 'not_found',
+  ERROR: 'error',
+};
+
+/**
+ * Gets a property from an object using a single, case-insensitive key.
+ * @param {object} obj The object to search.
+ * @param {string} keyName The case-insensitive key to find.
+ * @returns The property value or undefined if not found.
+ */
+const getProperty = (obj, keyName) => {
+    if (!obj || typeof obj !== 'object' || !keyName) {
+        return undefined;
+    }
+    const keyToFind = keyName.toLowerCase();
+    const foundKey = Object.keys(obj).find(k => k.trim().toLowerCase() === keyToFind);
+    return foundKey ? obj[foundKey] : undefined;
+};
+
+/**
+ * Gets a property from an object by trying an array of possible keys.
+ * @param {object} obj The object to search.
+ * @param {string[]} keys An array of possible keys to try.
+ * @returns The property value of the first key found, or undefined.
+ */
+const getFlexibleProperty = (obj, keys) => {
+    if (!obj || typeof obj !== 'object' || !Array.isArray(keys)) {
+        return undefined;
+    }
+    for (const key of keys) {
+        const value = getProperty(obj, key);
+        if (value !== undefined && value !== null) {
+            return value;
+        }
+    }
+    return undefined;
+};
+
+
+/**
+ * Formats a date value intelligently, preserving date ranges as strings.
+ * @param {*} dateValue The value to format.
+ * @returns {string} The formatted date or original string.
+ */
+const formatDate = (dateValue) => {
+    if (dateValue === undefined || dateValue === null) return 'N/A';
+
+    // If it's a string that looks like a date range, return it as is.
+    if (typeof dateValue === 'string') {
+        const lowerCaseValue = dateValue.toLowerCase();
+        if (lowerCaseValue.includes(' al ') || lowerCaseValue.includes(' del ') || (lowerCaseValue.match(/ y /g) || []).length > 0) {
+            return dateValue;
+        }
+    }
+
+    // Attempt to parse single dates (from Excel serial or other formats)
+    let date;
+    if (typeof dateValue === 'number') { // Excel serial date
+        date = new Date((dateValue - 25569) * 86400 * 1000);
+        // Adjust for timezone offset to get correct UTC date
+        date = new Date(date.valueOf() + date.getTimezoneOffset() * 60000);
+    } else {
+        const parsedDate = new Date(dateValue);
+        // Handle common non-standard formats like DD/MM/YYYY
+        if (isNaN(parsedDate.getTime()) && typeof dateValue === 'string') {
+            const parts = dateValue.split(/[/.-]/);
+            if (parts.length === 3) {
+                // Assuming DD/MM/YYYY
+                const day = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) -1;
+                const year = parseInt(parts[2], 10);
+                if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                    date = new Date(Date.UTC(year, month, day));
+                }
+            }
+        } else {
+             date = parsedDate;
+        }
+    }
+
+    if (!date || isNaN(date.getTime())) {
+        return String(dateValue);
+    }
+
+    return date.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+    });
+};
+
+const playSound = (type) => {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!audioCtx) {
+        console.warn("AudioContext not supported by this browser.");
+        return;
+    }
+
+    if (type === 'success') {
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(659.25, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.5);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.2);
+    } else if (type === 'error') {
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(164.81, audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.2);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + 0.2);
+    }
+};
+
+// ============================================================================
+// ICONS
+// ============================================================================
+
+const LogoIcon = (props) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" {...props}>
+        <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm13.36-1.814a.75.75 0 1 0-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.14-.094l3.75-5.25Z" clipRule="evenodd" />
+    </svg>
+);
+
+const SearchIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+  </svg>
+);
+
+const CheckCircleIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+);
+
+const XCircleIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+);
+
+const InfoIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+  </svg>
+);
+
+const DownloadIcon = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+  </svg>
+);
+
+const SpinnerIcon = (props) => (
+    <div className="h-8 w-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" {...props}></div>
+);
+
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+
+const SearchBar = ({ onSearch, onClear, query, setQuery }) => {
+
+  const handleInputChange = (e) => {
+    setQuery(e.target.value);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (query) onSearch(query);
+  };
+  
+  const handleClearClick = () => {
+      onClear();
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+      <h2 className="text-xl font-semibold text-slate-800 mb-1">Buscar Constancia</h2>
+      <p className="text-slate-600 mb-4">Ingrese el folio de la constancia para verificar su validez.</p>
+      <form onSubmit={handleSubmit}>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-grow">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <SearchIcon className="h-5 w-5 text-slate-400" />
+            </div>
+            <input
+              type="text"
+              value={query}
+              onChange={handleInputChange}
+              placeholder="Ej: TNM-054-00-2025-123"
+              className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-md leading-5 bg-white placeholder-slate-400 focus:outline-none focus:placeholder-slate-300 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-all"
+            />
+          </div>
+          <button
+            type="submit"
+            className="px-6 py-3 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+            disabled={!query}
+          >
+            Verificar
+          </button>
+           <button
+            type="button"
+            onClick={handleClearClick}
+            className="px-6 py-3 text-sm font-semibold text-slate-700 bg-slate-200 rounded-md hover:bg-slate-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400 transition-colors disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+            disabled={!query}
+          >
+            Borrar
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+
+const ResultItem = ({ label, value }) => (
+  <div>
+    <p className="text-sm font-medium text-slate-500">{label}</p>
+    <p className="mt-1 text-md font-semibold text-slate-800">{value || 'N/A'}</p>
+  </div>
+);
+
+const ValidationResult = ({ status, result }) => {
+    
+  const handleDownloadPdf = () => {
+    if (!result) return;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('Constancia de Validez', 105, 25, { align: 'center' });
+    doc.setFontSize(12);
+    let yPos = 45;
+    const fieldGap = 12;
+    const labelX = 20;
+    const valueX = 65;
+    const wrapWidth = 125;
+
+    const addField = (label, value) => {
+        if (value === undefined || value === null) return;
+        doc.setFont('helvetica', 'bold');
+        doc.text(label, labelX, yPos);
+        doc.setFont('helvetica', 'normal');
+        const textLines = doc.splitTextToSize(String(value), wrapWidth);
+        doc.text(textLines, valueX, yPos);
+        yPos += (textLines.length * 5) + (fieldGap - 5);
+    };
+
+    const folio = getFlexibleProperty(result, ['Folio', 'ID', 'Clave', 'Constancia']);
+    addField('Folio:', folio);
+    addField('Nombre del Titular:', getFlexibleProperty(result, ['Nombre', 'Nombre del Titular']));
+    addField('Curso/Taller:', getFlexibleProperty(result, ['Curso', 'Nombre del curso-taller', 'Curso/Taller']));
+    addField('Fecha:', formatDate(getFlexibleProperty(result, ['Fecha', 'Fecha del curso-taller'])));
+    addField('Departamento:', getFlexibleProperty(result, ['Departamento']));
+    addField('Duración:', getFlexibleProperty(result, ['Duracion', 'Duración']));
+
+    yPos += 5;
+    doc.setLineWidth(0.2);
+    doc.line(20, yPos, 190, yPos);
+    yPos += 10;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(150);
+    doc.text(`Este documento es una representación digital para la verificación de la constancia.`, 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text(`Generado el: ${new Date().toLocaleString('es-ES')}`, 105, yPos, { align: 'center' });
+    yPos += 5;
+    doc.text(`Contacto para dudas o aclaraciones: coord_actualizaciondocente@itdurango.edu.mx`, 105, yPos, { align: 'center' });
+
+    doc.save(`Validacion-${folio || 'INVALIDA'}.pdf`);
+  };
+    
+  if (status === ValidationStatus.IDLE) {
+    return <div className="mt-6"></div>;
+  }
+  
+  if (status === ValidationStatus.SUCCESS && result) {
+    const departamento = getFlexibleProperty(result, ['Departamento']);
+    const duracion = getFlexibleProperty(result, ['Duracion', 'Duración']);
+    return (
+      <div className="mt-6 bg-green-50 border-l-4 border-green-500 text-green-800 p-6 rounded-r-lg shadow-md transition-all animate-fade-in">
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-8 w-8 text-green-500 mr-3" />
+            <h3 className="text-2xl font-bold">Constancia Válida</h3>
+          </div>
+          <button
+            onClick={handleDownloadPdf}
+            className="flex items-center space-x-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            aria-label="Descargar Validación"
+          >
+            <DownloadIcon className="h-5 w-5" />
+            <span>Descargar Validación</span>
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 border-t border-green-200 pt-4">
+          <ResultItem label="Folio" value={<span className="font-mono bg-green-100 px-2 py-1 rounded">{getFlexibleProperty(result, ['Folio', 'ID', 'Clave', 'Constancia'])}</span>} />
+          <ResultItem label="Nombre del Titular" value={getFlexibleProperty(result, ['Nombre', 'Nombre del Titular'])} />
+          <ResultItem label="Nombre del curso-taller" value={getFlexibleProperty(result, ['Curso', 'Nombre del curso-taller', 'Curso/Taller'])} />
+          <ResultItem label="Fecha del curso-taller" value={formatDate(getFlexibleProperty(result, ['Fecha', 'Fecha del curso-taller']))} />
+          {departamento && <ResultItem label="Departamento" value={departamento} />}
+          {duracion && <ResultItem label="Duración" value={duracion} />}
+        </div>
+      </div>
+    );
+  }
+
+  if (status === ValidationStatus.NOT_FOUND) {
+    return (
+      <div className="mt-6 bg-red-50 border-l-4 border-red-500 text-red-800 p-6 rounded-r-lg shadow-md transition-all animate-fade-in">
+        <div className="flex items-center">
+          <XCircleIcon className="h-8 w-8 text-red-500 mr-3" />
+          <div>
+            <h3 className="text-2xl font-bold">Constancia no Encontrada</h3>
+            <p className="mt-1">El folio ingresado no fue encontrado en la base de datos. Por favor, verifique el folio e intente de nuevo.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (status === ValidationStatus.ERROR) {
+    return (
+       <div className="mt-6 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 p-6 rounded-r-lg shadow-md transition-all animate-fade-in">
+        <div className="flex items-center">
+          <InfoIcon className="h-8 w-8 text-yellow-500 mr-3" />
+          <div>
+            <h3 className="text-2xl font-bold">Error</h3>
+            <p className="mt-1">Ocurrió un error inesperado durante la validación.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="mt-6"></div>;
+};
+
+
+// ============================================================================
+// MAIN APP COMPONENT
+// ============================================================================
+
+const App = () => {
+  const { useState, useEffect } = React;
+  
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [certificateData, setCertificateData] = useState([]);
+  
+  const [query, setQuery] = useState('');
+  const [validationStatus, setValidationStatus] = useState(ValidationStatus.IDLE);
+  const [validationResult, setValidationResult] = useState(null);
+
+  useEffect(() => {
+    const loadDatabase = async () => {
+      try {
+        const response = await fetch('database.xlsx');
+        if (!response.ok) {
+          throw new Error(`Error HTTP: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const data = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        let allData = [];
+        workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet);
+            allData = allData.concat(json);
+        });
+
+        setCertificateData(allData);
+      } catch (e) {
+        console.error("Fallo al cargar o procesar database.xlsx:", e);
+        setError('No se pudo cargar la base de datos. Asegúrese de que el archivo "database.xlsx" se encuentre en la misma carpeta que este archivo HTML y que sea accesible.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadDatabase();
+  }, []);
+
+  useEffect(() => {
+    if (validationStatus === ValidationStatus.SUCCESS) {
+      playSound('success');
+    } else if (validationStatus === ValidationStatus.NOT_FOUND || validationStatus === ValidationStatus.ERROR) {
+      playSound('error');
+    }
+  }, [validationStatus]);
+
+  const handleSearch = (searchQuery) => {
+    if (!searchQuery || certificateData.length === 0) {
+      setValidationStatus(ValidationStatus.IDLE);
+      setValidationResult(null);
+      return;
+    }
+
+    const cleanedQuery = searchQuery.trim().toLowerCase();
+    const result = certificateData.find(record => {
+        const folioValue = getFlexibleProperty(record, ['Folio', 'ID', 'Clave', 'Constancia', 'Folio de Constancia']);
+        return folioValue !== null && typeof folioValue !== 'undefined' && String(folioValue).trim().toLowerCase() === cleanedQuery;
+    });
+
+    if (result) {
+      setValidationResult(result);
+      setValidationStatus(ValidationStatus.SUCCESS);
+    } else {
+      setValidationResult(null);
+      setValidationStatus(ValidationStatus.NOT_FOUND);
+    }
+  };
+
+  const handleClear = () => {
+    setQuery('');
+    setValidationStatus(ValidationStatus.IDLE);
+    setValidationResult(null);
+  };
+  
+  const renderContent = () => {
+      if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center p-10 bg-white rounded-lg shadow-md animate-fade-in">
+                <SpinnerIcon />
+                <p className="mt-4 text-slate-600 font-semibold">Cargando base de datos...</p>
+            </div>
+        );
+      }
+      if (error) {
+          return (
+            <div className="bg-red-50 border border-red-200 text-red-800 p-6 rounded-lg flex items-start space-x-4 animate-fade-in">
+                <XCircleIcon className="h-6 w-6 flex-shrink-0 mt-0.5" />
+                <div>
+                    <p className="font-bold text-lg">Error al Cargar</p>
+                    <p className="mt-1">{error}</p>
+                </div>
+            </div>
+          );
+      }
+      return (
+          <div className="animate-fade-in">
+              <SearchBar 
+                  onSearch={handleSearch} 
+                  onClear={handleClear} 
+                  query={query}
+                  setQuery={setQuery}
+              />
+              <ValidationResult status={validationStatus} result={validationResult} />
+          </div>
+      );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col">
+      <header className="bg-white shadow-sm sticky top-0 z-10">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <LogoIcon className="h-8 w-8 text-blue-600" />
+            <h1 className="text-lg sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Validador de Constancias y Reconocimientos del ITD
+            </h1>
+          </div>
+        </div>
+      </header>
+      
+      <main className="flex-grow container mx-auto p-4 sm:p-6 lg:p-8 flex items-start justify-center">
+        <div className="w-full max-w-3xl mx-auto">
+          {renderContent()}
+        </div>
+      </main>
+
+      <footer className="py-6 text-center text-slate-500 text-sm">
+        <p>&copy; {new Date().getFullYear()} Validador de Constancias. Todos los derechos reservados.</p>
+        <p className="mt-2">Desarrollo académico, coordinación de actualización docente del ITD.</p>
+      </footer>
+    </div>
+  );
+};
+
+
+// ============================================================================
+// RENDER APP
+// ============================================================================
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+    </script>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
