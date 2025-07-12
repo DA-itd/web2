@@ -289,12 +289,20 @@ const ValidationResult = ({ status, result }) => {
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-
+    
+    // New Header
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.text('Constancia de Validez', 105, 25, { align: 'center' });
     doc.setFontSize(12);
-    let yPos = 45;
+    doc.text('TECNOLÓGICO NACIONAL DE MÉXICO', 105, 15, { align: 'center' });
+    doc.text('INSTITUTO TECNOLÓGICO DE DURANGO', 105, 22, { align: 'center' });
+
+    // Main Title
+    doc.setFontSize(20);
+    doc.text('Constancia de Validez', 105, 35, { align: 'center' });
+    
+    // Fields section
+    doc.setFontSize(12);
+    let yPos = 50; // Start fields lower down
     const fieldGap = 12;
     const labelX = 20;
     const valueX = 65;
