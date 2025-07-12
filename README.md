@@ -1,2 +1,2 @@
 # web2
-Validation
+Puedes realizar la validación de la constancia o diploma de a través del folio localizado en la parte inferior izquierda del documento.
