@@ -45,6 +45,23 @@
 // CONFIGURATION
 // ============================================================================
 // INSTRUCCIÓN: Pegue aquí la URL de su aplicación web de Google Apps Script.
+//
+// PARA SOPORTE DE MÚLTIPLES HOJAS:
+// Su script de Google debe devolver un objeto JSON donde cada clave es el nombre de una hoja
+// y su valor es un array de objetos (registros).
+//
+// Ejemplo de JSON que debe devolver su script:
+// {
+//   "Hoja 1": [
+//     { "Folio": "ABC-001", "Nombre": "Juan Perez" },
+//     { "Folio": "ABC-002", "Nombre": "Maria Lopez" }
+//   ],
+//   "Hoja 3": [
+//     { "Folio": "XYZ-001", "Nombre": "Pedro Gomez" }
+//   ]
+// }
+//
+// Si solo tiene una hoja, puede devolver: { "miHoja": [ ...registros... ] }
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbylDDBbYUosClsroAaWpjokoC9kkfYQAipnrigW2s5jRu6-aPLrKe2v4mN9OWZQNQAg_w/exec';
 
 // ============================================================================
@@ -524,10 +541,9 @@ const ValidationResult = ({ status, result }) => {
 const DebugInfo = ({ debugData }) => {
   if (!debugData) return null;
 
-  // Handles both old format (array) and new format (object with sheets property) for robustness
   const isNewFormat = typeof debugData === 'object' && debugData !== null && !Array.isArray(debugData);
   const summaryMessage = isNewFormat ? debugData.summaryMessage : null;
-  const dataToDisplay = isNewFormat ? debugData.sheets : debugData;
+  const dataToDisplay = isNewFormat ? debugData.sheets : [];
   const instruction = isNewFormat && debugData.skippedCount > 0 
     ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible en las primeras filas. Por favor, revise la vista previa de datos a continuación y corrija el archivo."
     : "Si algunas hojas no se cargan, copie y pegue todo el contenido de este cuadro para ayudar a resolver el problema.";
@@ -536,412 +552,255 @@ const DebugInfo = ({ debugData }) => {
   return (
     <div className="mt-8 p-4 bg-slate-800 text-white rounded-lg shadow-inner animate-fade-in">
       <h3 className="text-lg font-bold mb-2 text-yellow-300">Información de Depuración</h3>
-      <p className="text-sm text-slate-300 mb-4">{instruction}</p>
-      {summaryMessage && (
-         <div className="mb-4 p-3 bg-slate-700 rounded">
-            <p className="font-bold text-slate-100">{summaryMessage}</p>
-         </div>
-      )}
-      <pre className="bg-slate-900 p-3 rounded text-xs overflow-x-auto" style={{ maxHeight: '400px' }}>
-        <code>
-          {JSON.stringify(dataToDisplay, null, 2)}
-        </code>
-      </pre>
+      {summaryMessage && <p className="text-sm text-slate-300 mb-2">{summaryMessage}</p>}
+      <p className="text-xs text-slate-400 mb-4">{instruction}</p>
+      <div className="space-y-4">
+        {dataToDisplay.map((sheet, index) => (
+          <div key={index} className={`p-3 rounded ${sheet.status === 'processed' ? 'bg-green-900/50' : 'bg-red-900/50'}`}>
+            <div className="flex justify-between items-center">
+              <span className="font-mono text-sm font-semibold">{sheet.sheetName}</span>
+              <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${sheet.status === 'processed' ? 'bg-green-500 text-green-950' : 'bg-red-500 text-red-950'}`}>
+                {sheet.status === 'processed' ? 'PROCESADA' : 'OMITIDA'}
+              </span>
+            </div>
+            {sheet.reason && <p className="text-xs text-red-300 mt-1">{sheet.reason}</p>}
+            <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) detectada(s).</p>
+            {sheet.dataPreview && sheet.dataPreview.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">Vista previa de datos</summary>
+                <pre className="mt-1 text-xs bg-black/50 p-2 rounded overflow-x-auto">
+                  <code>{JSON.stringify(sheet.dataPreview, null, 2)}</code>
+                </pre>
+              </details>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
 
-const PasswordPrompt = ({ onConfirm, onCancel }) => {
-    const { useState, useEffect, useRef } = React;
-    const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-    const inputRef = useRef(null);
 
-    const correctPassword = "Tecno2021$";
+const App = () => {
+    const { useState, useEffect, useCallback } = React;
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [validationStatus, setValidationStatus] = useState(ValidationStatus.IDLE);
+    const [validationResult, setValidationResult] = useState(null);
+    const [query, setQuery] = useState('');
+    const [debugInfo, setDebugInfo] = useState(null);
 
-    useEffect(() => {
-        // Focus the input when the modal appears
-        inputRef.current?.focus();
+    const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'certificado'];
+
+    const processData = useCallback((sheetsData, source) => {
+        let allRecords = [];
+        let processedCount = 0;
+        let skippedCount = 0;
+        const debugSheets = [];
+
+        Object.entries(sheetsData).forEach(([sheetName, sheetData]) => {
+            if (!Array.isArray(sheetData) || sheetData.length === 0) {
+                skippedCount++;
+                debugSheets.push({
+                    sheetName,
+                    status: 'skipped',
+                    reason: 'La hoja está vacía o no es un array.',
+                    rowCount: 0,
+                    dataPreview: []
+                });
+                return;
+            }
+
+            const firstRow = sheetData[0];
+            const folioValue = getFlexibleProperty(firstRow, FOLIO_KEYS);
+
+            if (folioValue === undefined) {
+                skippedCount++;
+                debugSheets.push({
+                    sheetName,
+                    status: 'skipped',
+                    reason: "No se encontró una columna de 'folio' reconocible.",
+                    rowCount: sheetData.length,
+                    dataPreview: sheetData.slice(0, 3)
+                });
+            } else {
+                processedCount++;
+                allRecords = allRecords.concat(sheetData);
+                debugSheets.push({
+                    sheetName,
+                    status: 'processed',
+                    rowCount: sheetData.length,
+                    dataPreview: sheetData.slice(0, 3)
+                });
+            }
+        });
+
+        if (allRecords.length > 0) {
+            setData(allRecords);
+            setError(null);
+        } else {
+            setError('No se encontraron datos válidos en la fuente proporcionada. Revise la información de depuración.');
+        }
+
+        const summaryMessage = `Se procesaron datos de ${processedCount} de ${processedCount + skippedCount} hoja(s) desde ${source}.`;
+        setDebugInfo({
+            summaryMessage,
+            processedCount,
+            skippedCount,
+            sheets: debugSheets,
+        });
+
+        if (skippedCount > 0 && processedCount > 0) {
+             setError(`Advertencia: Se omitieron ${skippedCount} hoja(s) porque no se pudo encontrar una columna de folio válida. Revise la información de depuración a continuación.`);
+        } else if (skippedCount > 0 && processedCount === 0) {
+             setError(`Error Crítico: No se pudo procesar ninguna hoja. Verifique que sus hojas de cálculo tengan una columna de folio válida.`)
+        }
+
     }, []);
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        if (password === correctPassword) {
-            onConfirm();
+
+    const handleFileProcessed = useCallback((arrayBuffer) => {
+        try {
+            const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+            const sheetsData = {};
+            workbook.SheetNames.forEach(sheetName => {
+                const worksheet = workbook.Sheets[sheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet, { defval: null });
+                sheetsData[sheetName] = json;
+            });
+            processData(sheetsData, "el archivo Excel");
+        } catch (err) {
+            console.error("Error processing Excel file:", err);
+            setError('Hubo un error al procesar el archivo Excel.');
+        } finally {
+            setLoading(false);
+        }
+    }, [processData]);
+    
+    useEffect(() => {
+        const useGoogleSheets = GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
+        if (useGoogleSheets) {
+            setLoading(true);
+            setError(null);
+            fetch(GOOGLE_SCRIPT_URL)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Error en la red: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (typeof data !== 'object' || data === null) {
+                         throw new Error("La respuesta de Google Sheets no es un objeto JSON válido.");
+                    }
+                    processData(data, "Google Sheets");
+                })
+                .catch(err => {
+                    console.error("Error fetching from Google Sheets:", err);
+                    setError(`Error al conectar con Google Sheets: ${err.message}. Mostrando carga manual de archivo.`);
+                    // Fallback to manual upload by setting data to null
+                    setData(null);
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        }
+    }, [processData]);
+
+    const handleSearch = (searchQuery) => {
+        if (!data) {
+            setValidationStatus(ValidationStatus.ERROR);
+            return;
+        }
+        
+        const trimmedQuery = searchQuery.trim().toLowerCase();
+        
+        const result = data.find(item => {
+           const folio = getFlexibleProperty(item, FOLIO_KEYS);
+           return folio && String(folio).trim().toLowerCase() === trimmedQuery;
+        });
+
+        if (result) {
+            setValidationResult(result);
+            setValidationStatus(ValidationStatus.SUCCESS);
+            playSound('success');
         } else {
-            setError('Clave incorrecta. Intente de nuevo.');
-            setPassword(''); // Clear the input on wrong attempt
+            setValidationResult(null);
+            setValidationStatus(ValidationStatus.NOT_FOUND);
+            playSound('error');
         }
     };
+    
+    const handleClear = () => {
+        setQuery('');
+        setValidationResult(null);
+        setValidationStatus(ValidationStatus.IDLE);
+    }
+    
+    const showUploader = !data && GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-            <div className="bg-white rounded-lg shadow-2xl p-6 w-full max-w-sm mx-4">
-                <h3 className="text-lg font-bold text-slate-800">Acceso Restringido</h3>
-                <p className="text-sm text-slate-600 mt-1 mb-4">Ingrese la clave para cargar un nuevo archivo.</p>
-                <form onSubmit={handleSubmit}>
-                    <input
-                        ref={inputRef}
-                        type="password"
-                        value={password}
-                        onChange={(e) => {
-                            setPassword(e.target.value);
-                            setError(''); // Clear error on new input
-                        }}
-                        className={`block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none sm:text-sm ${error ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-slate-300 focus:ring-blue-500 focus:border-blue-500'}`}
-                        placeholder="Clave de administrador"
-                        aria-label="Clave de administrador"
-                    />
-                    {error && <p className="text-red-600 text-xs mt-2">{error}</p>}
-                    <div className="mt-4 flex justify-end space-x-2">
-                        <button
-                            type="button"
-                            onClick={onCancel}
-                            className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-md hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                            Confirmar
-                        </button>
+        <div className="bg-slate-50 min-h-screen font-sans">
+            <header className="bg-white shadow-sm">
+                <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                        <LogoIcon className="h-10 w-10 text-blue-600" />
+                        <div>
+                           <h1 className="text-2xl font-bold text-slate-800">Validador de Constancias</h1>
+                           <p className="text-sm text-slate-500">Instituto Tecnológico de Durango</p>
+                        </div>
                     </div>
-                </form>
-            </div>
+                </div>
+            </header>
+            
+            <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+               {loading && (
+                    <div className="flex flex-col items-center justify-center p-12 text-center">
+                        <SpinnerIcon />
+                        <p className="mt-4 text-lg font-semibold text-slate-700">Cargando datos...</p>
+                        <p className="text-slate-500">Conectando con la base de datos.</p>
+                    </div>
+                )}
+                
+                {error && (
+                   <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-r-lg shadow-md" role="alert">
+                     <div className="flex">
+                       <div className="py-1"><InfoIcon className="h-6 w-6 text-yellow-500 mr-3" /></div>
+                       <div>
+                         <p className="font-bold">Notificación</p>
+                         <p className="text-sm">{error}</p>
+                       </div>
+                     </div>
+                   </div>
+                )}
+                
+                {data ? (
+                     <>
+                        <SearchBar onSearch={handleSearch} onClear={handleClear} query={query} setQuery={setQuery} />
+                        <ValidationResult status={validationStatus} result={validationResult} />
+                        <DebugInfo debugData={debugInfo} />
+                    </>
+                ) : !loading && (showUploader || error) && (
+                     <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
+                )}
+                
+                {data && GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE' && (
+                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm">
+                        <p><span className="font-bold">Modo Archivo Local:</span> Los datos se han cargado desde un archivo .xlsx. La información desaparecerá si recarga la página. Para una conexión permanente, configure la URL de Google Apps Script en el archivo HTML.</p>
+                    </div>
+                )}
+
+            </main>
+
+            <footer className="text-center py-6 text-sm text-slate-500">
+                <p>&copy; {new Date().getFullYear()} - Coordinación de Actualización Docente - ITD. Todos los derechos reservados.</p>
+            </footer>
         </div>
     );
 };
 
-
-// ============================================================================
-// MAIN APP COMPONENT
-// ============================================================================
-
-const App = () => {
-  const { useState, useEffect } = React;
-  
-  const [loading, setLoading] = useState(true); // Start loading automatically
-  const [error, setError] = useState(null);
-  const [certificateData, setCertificateData] = useState([]);
-  const [debugInfo, setDebugInfo] = useState(null);
-  const [databaseLoaded, setDatabaseLoaded] = useState(false);
-  
-  const [query, setQuery] = useState('');
-  const [validationStatus, setValidationStatus] = useState(ValidationStatus.IDLE);
-  const [validationResult, setValidationResult] = useState(null);
-  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
-
-  const handleFileProcessed = (arrayBuffer) => {
-      try {
-        setLoading(true);
-        setError(null); // Clear previous errors
-        setDebugInfo(null); // Clear previous debug info
-
-        const data = new Uint8Array(arrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-
-        let allData = [];
-        const sheetDebugInfo = []; 
-        const potentialFolioHeaders = ['folio', 'id', 'clave', 'constancia', 'folio de constancia', 'no. de folio', 'no de folio', 'numero de folio', 'certificado'];
-
-        workbook.SheetNames.forEach(sheetName => {
-            const worksheet = workbook.Sheets[sheetName];
-            if (!worksheet || !worksheet['!ref']) {
-                sheetDebugInfo.push({ sheetName, status: 'Skipped (empty or invalid sheet)' });
-                return;
-            }
-
-            const dataAoA = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
-            if (dataAoA.length === 0) {
-                sheetDebugInfo.push({ sheetName, status: 'Skipped (no data rows)' });
-                return;
-            }
-
-            let headerRowIndex = -1;
-            // Only scan the first 10 rows for a header to improve performance and avoid false positives.
-            const rowsToScanForHeader = Math.min(dataAoA.length, 10);
-            for (let i = 0; i < rowsToScanForHeader; i++) {
-                const row = dataAoA[i];
-                if (Array.isArray(row) && row.some(cell => {
-                    const cellVal = String(cell || '').trim().toLowerCase();
-                    return potentialFolioHeaders.includes(cellVal);
-                })) {
-                    headerRowIndex = i;
-                    break;
-                }
-            }
-            
-            if (headerRowIndex === -1) {
-                sheetDebugInfo.push({
-                    sheetName,
-                    status: 'Skipped (no header row with a "folio" column found in the first 10 rows)',
-                    dataPreview: dataAoA.slice(0, 15),
-                });
-                return;
-            }
-
-            const headers = dataAoA[headerRowIndex].map(h => (h ? String(h).trim() : ''));
-            const dataRows = dataAoA.slice(headerRowIndex + 1);
-
-            const sheetJson = dataRows
-                .filter(row => Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '')) 
-                .map(row => {
-                    const record = {};
-                    headers.forEach((header, i) => {
-                        if (header && i < row.length) { 
-                            record[header] = row[i];
-                        }
-                    });
-                    return record;
-                });
-            
-            sheetDebugInfo.push({
-                sheetName,
-                status: `Processed ${sheetJson.length} records.`,
-                headerRowIndex,
-                headers,
-                dataPreview: dataAoA.slice(0, 15),
-                jsonDataPreview: sheetJson.slice(0, 5),
-            });
-            
-            allData = allData.concat(sheetJson);
-        });
-
-        const processedCount = sheetDebugInfo.filter(d => d.status.startsWith('Processed')).length;
-        const totalSheets = workbook.SheetNames.length;
-        const skippedCount = totalSheets - processedCount;
-
-        const fullDebugInfo = {
-            totalSheets,
-            processedCount,
-            skippedCount,
-            summaryMessage: `Se procesaron ${processedCount} de ${totalSheets} hojas. Omitidas: ${skippedCount}.`,
-            sheets: sheetDebugInfo
-        };
-
-        setCertificateData(allData);
-        setDebugInfo(fullDebugInfo);
-        setDatabaseLoaded(true);
-
-        if (skippedCount > 0) {
-            setError(`¡Atención! Se omitieron ${skippedCount} de ${totalSheets} hoja(s) porque no se encontró una columna de "folio" válida en ellas. Revise los detalles en el panel de depuración de abajo.`);
-        }
-      } catch (e) {
-        console.error("Fallo al cargar o procesar el archivo Excel:", e);
-        setError('No se pudo procesar el archivo Excel. Asegúrese de que el formato sea correcto.');
-        setDatabaseLoaded(false);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-  useEffect(() => {
-    const loadDatabaseFromGoogleSheet = async () => {
-      // Don't try to load if URL is not set. Go straight to manual upload.
-      if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
-          console.warn("Google Apps Script URL is not configured. Waiting for manual file upload.");
-          setLoading(false);
-          return;
-      }
-      
-      setError(null);
-      setLoading(true);
-      
-      try {
-        const response = await fetch(GOOGLE_SCRIPT_URL);
-        if (!response.ok) {
-          const errorBody = await response.text();
-          throw new Error(`La respuesta del servidor no fue exitosa (código: ${response.status}). Detalles: ${errorBody}`);
-        }
-        
-        const data = await response.json();
-
-        if (data.error) {
-            throw new Error(`Error en el script de Google: ${data.error}`);
-        }
-
-        if (data && Array.isArray(data.records)) {
-          setCertificateData(data.records);
-          setDatabaseLoaded(true);
-        } else {
-          throw new Error("La respuesta del script no tiene el formato esperado (se esperaba un objeto con una propiedad 'records' que sea un array).");
-        }
-      } catch (err) {
-        console.error("Error loading data from Google Sheet:", err);
-        setError(`No se pudo cargar la base de datos desde Google Sheets. ${err.message}`);
-        setDatabaseLoaded(false);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadDatabaseFromGoogleSheet();
-  }, []);
-    
-  useEffect(() => {
-    if (validationStatus === ValidationStatus.SUCCESS) {
-      playSound('success');
-    } else if (validationStatus === ValidationStatus.NOT_FOUND || validationStatus === ValidationStatus.ERROR) {
-      playSound('error');
-    }
-  }, [validationStatus]);
-
-  const handleSearch = (searchQuery) => {
-    if (!searchQuery || certificateData.length === 0) {
-      setValidationStatus(ValidationStatus.IDLE);
-      setValidationResult(null);
-      return;
-    }
-
-    const cleanedQuery = searchQuery.trim().toLowerCase();
-    const result = certificateData.find(record => {
-        const folioValue = getFlexibleProperty(record, ['Folio', 'ID', 'Clave', 'Constancia', 'Folio de Constancia']);
-        return folioValue !== null && typeof folioValue !== 'undefined' && String(folioValue).trim().toLowerCase() === cleanedQuery;
-    });
-
-    if (result) {
-      setValidationResult(result);
-      setValidationStatus(ValidationStatus.SUCCESS);
-    } else {
-      setValidationResult(null);
-      setValidationStatus(ValidationStatus.NOT_FOUND);
-    }
-  };
-
-  const handleClear = () => {
-    setQuery('');
-    setValidationStatus(ValidationStatus.IDLE);
-    setValidationResult(null);
-  };
-
-  const performReset = () => {
-    setDatabaseLoaded(false);
-    setCertificateData([]);
-    setDebugInfo(null);
-    setError(null);
-    handleClear();
-    setShowPasswordPrompt(false);
-    // Setting loading to false to ensure uploader shows up immediately
-    setLoading(false);
-  };
-
-  const handleResetRequest = () => {
-    setShowPasswordPrompt(true);
-  };
-  
-  const renderContent = () => {
-      if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center p-10 bg-white rounded-lg shadow-md animate-fade-in">
-                <SpinnerIcon />
-                <p className="mt-4 text-slate-600 font-semibold">Conectando con la base de datos...</p>
-            </div>
-        );
-      }
-
-      if (databaseLoaded) {
-          return (
-              <div className="animate-fade-in">
-                  <SearchBar 
-                      onSearch={handleSearch} 
-                      onClear={handleClear} 
-                      query={query}
-                      setQuery={setQuery}
-                  />
-                  <ValidationResult status={validationStatus} result={validationResult} />
-                  <div className="mt-6 text-center">
-                      <button
-                          onClick={handleResetRequest}
-                          className="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors"
-                      >
-                          Cargar otro archivo
-                      </button>
-                  </div>
-                  <DebugInfo debugData={debugInfo} />
-              </div>
-          );
-      }
-      
-      // Fallback to uploader view
-      const isUrlConfigured = GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
-      
-      return (
-          <div className="animate-fade-in">
-                {!isUrlConfigured && !error && (
-                    <div className="p-4 mb-4 text-sm text-blue-800 bg-blue-50 rounded-lg border border-blue-200" role="alert">
-                        <p className="font-bold text-base">¡Casi listo! Falta un paso de configuración.</p>
-                        <p className="mt-2">La conexión automática a Google Sheets no está configurada.</p>
-                        <p className="mt-2 font-semibold">Acción requerida:</p>
-                        <ol className="list-decimal list-inside mt-1 space-y-1">
-                            <li>Abra el archivo <code className="bg-blue-100 text-blue-900 px-1 py-0.5 rounded text-xs font-mono">index.html</code> en un editor de texto.</li>
-                            <li>Busque la línea: <code className="bg-blue-100 text-blue-900 px-1 py-0.5 rounded text-xs font-mono">const GOOGLE_SCRIPT_URL = '...';</code></li>
-                            <li>Reemplace el texto de ejemplo por la URL de su Google Apps Script.</li>
-                        </ol>
-                        <p className="mt-3">Mientras tanto, puede cargar un archivo manualmente a continuación.</p>
-                    </div>
-                )}
-                {error && (
-                    <div className="mb-4 bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg flex items-start space-x-4" role="alert">
-                        <XCircleIcon className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                        <div>
-                            <p className="font-bold">Error al Cargar la Base de Datos</p>
-                            <p className="text-sm mt-1">{error}</p>
-                            <p className="text-sm mt-1">Puede intentar cargar un archivo manualmente a continuación.</p>
-                        </div>
-                    </div>
-                )}
-              <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
-              <DebugInfo debugData={debugInfo} />
-          </div>
-      );
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-100 font-sans text-slate-800 flex flex-col">
-       {showPasswordPrompt && <PasswordPrompt onConfirm={performReset} onCancel={() => setShowPasswordPrompt(false)} />}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <LogoIcon className="h-8 w-8 text-blue-600" />
-            <h1 className="text-lg sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Validador de Constancias y Reconocimientos del ITD
-            </h1>
-          </div>
-        </div>
-      </header>
-      
-      <main className="flex-grow container mx-auto p-4 sm:p-6 lg:p-8 flex items-center justify-center">
-        <div className="w-full max-w-3xl mx-auto">
-          {renderContent()}
-        </div>
-      </main>
-
-      <footer className="py-6 text-center text-slate-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} Validador de Constancias. Todos los derechos reservados.</p>
-        <p className="mt-2">Desarrollo académico, coordinación de actualización docente del ITD.</p>
-      </footer>
-    </div>
-  );
-};
-
-
-// ============================================================================
-// RENDER APP
-// ============================================================================
-
-const rootElement = document.getElementById('root');
-if (!rootElement) {
-  throw new Error("Could not find root element to mount to");
-}
-
-const root = ReactDOM.createRoot(rootElement);
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+ReactDOM.render(<App />, document.getElementById('root'));
 
     </script>
   <script type="module" src="/index.tsx"></script>
