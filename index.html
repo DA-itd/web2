@@ -438,8 +438,33 @@ const App = () => {
         let allData = [];
         workbook.SheetNames.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
-            const json = XLSX.utils.sheet_to_json(worksheet);
-            allData = allData.concat(json);
+            if (!worksheet || !worksheet['!ref']) {
+                return; // Skip empty or invalid sheets
+            }
+            
+            // Convert sheet to array of arrays, ignoring blank rows
+            const dataAoA = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
+
+            // Skip sheets with no header or no data rows
+            if (dataAoA.length < 2) {
+                return;
+            }
+
+            const headers = dataAoA[0].map(h => (h ? String(h).trim() : ''));
+            const rows = dataAoA.slice(1);
+
+            const sheetJson = rows.map(row => {
+                const record = {};
+                headers.forEach((header, i) => {
+                    // Only map columns that have a header name.
+                    // This prevents creating keys for empty header columns.
+                    if (header) { 
+                        record[header] = row[i];
+                    }
+                });
+                return record;
+            });
+            allData = allData.concat(sheetJson);
         });
 
         setCertificateData(allData);
