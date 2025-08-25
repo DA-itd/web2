@@ -45,7 +45,7 @@
 // CONFIGURATION
 // ============================================================================
 // INSTRUCCIÓN: Pegue aquí la URL de su aplicación web de Google Apps Script.
-const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbylDDBbYUosClsroAaWpjokoC9kkfYQAipnrigW2s5jRu6-aPLrKe2v4mN9OWZQNQAg_w/exec';
 
 // ============================================================================
 // UTILS & TYPES
@@ -524,13 +524,27 @@ const ValidationResult = ({ status, result }) => {
 const DebugInfo = ({ debugData }) => {
   if (!debugData) return null;
 
+  // Handles both old format (array) and new format (object with sheets property) for robustness
+  const isNewFormat = typeof debugData === 'object' && debugData !== null && !Array.isArray(debugData);
+  const summaryMessage = isNewFormat ? debugData.summaryMessage : null;
+  const dataToDisplay = isNewFormat ? debugData.sheets : debugData;
+  const instruction = isNewFormat && debugData.skippedCount > 0 
+    ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible en las primeras filas. Por favor, revise la vista previa de datos a continuación y corrija el archivo."
+    : "Si algunas hojas no se cargan, copie y pegue todo el contenido de este cuadro para ayudar a resolver el problema.";
+
+
   return (
     <div className="mt-8 p-4 bg-slate-800 text-white rounded-lg shadow-inner animate-fade-in">
-      <h3 className="text-lg font-bold mb-2 text-yellow-300">Información de Depuración (Para el Asistente)</h3>
-      <p className="text-sm text-slate-300 mb-4">Por favor, copie y pegue todo el contenido de este cuadro para ayudar a resolver el problema de carga de archivos.</p>
-      <pre className="bg-slate-900 p-3 rounded text-xs overflow-x-auto">
+      <h3 className="text-lg font-bold mb-2 text-yellow-300">Información de Depuración</h3>
+      <p className="text-sm text-slate-300 mb-4">{instruction}</p>
+      {summaryMessage && (
+         <div className="mb-4 p-3 bg-slate-700 rounded">
+            <p className="font-bold text-slate-100">{summaryMessage}</p>
+         </div>
+      )}
+      <pre className="bg-slate-900 p-3 rounded text-xs overflow-x-auto" style={{ maxHeight: '400px' }}>
         <code>
-          {JSON.stringify(debugData, null, 2)}
+          {JSON.stringify(dataToDisplay, null, 2)}
         </code>
       </pre>
     </div>
@@ -621,28 +635,34 @@ const App = () => {
 
   const handleFileProcessed = (arrayBuffer) => {
       try {
+        setLoading(true);
+        setError(null); // Clear previous errors
+        setDebugInfo(null); // Clear previous debug info
+
         const data = new Uint8Array(arrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
 
         let allData = [];
-        const allDebugInfo = []; 
-        const potentialFolioHeaders = ['folio', 'id', 'clave', 'constancia', 'folio de constancia'];
+        const sheetDebugInfo = []; 
+        const potentialFolioHeaders = ['folio', 'id', 'clave', 'constancia', 'folio de constancia', 'no. de folio', 'no de folio', 'numero de folio', 'certificado'];
 
         workbook.SheetNames.forEach(sheetName => {
             const worksheet = workbook.Sheets[sheetName];
             if (!worksheet || !worksheet['!ref']) {
-                allDebugInfo.push({ sheetName, status: 'Skipped (empty or invalid sheet)' });
+                sheetDebugInfo.push({ sheetName, status: 'Skipped (empty or invalid sheet)' });
                 return;
             }
 
             const dataAoA = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
             if (dataAoA.length === 0) {
-                allDebugInfo.push({ sheetName, status: 'Skipped (no data rows)' });
+                sheetDebugInfo.push({ sheetName, status: 'Skipped (no data rows)' });
                 return;
             }
 
             let headerRowIndex = -1;
-            for (let i = 0; i < dataAoA.length; i++) {
+            // Only scan the first 10 rows for a header to improve performance and avoid false positives.
+            const rowsToScanForHeader = Math.min(dataAoA.length, 10);
+            for (let i = 0; i < rowsToScanForHeader; i++) {
                 const row = dataAoA[i];
                 if (Array.isArray(row) && row.some(cell => {
                     const cellVal = String(cell || '').trim().toLowerCase();
@@ -654,9 +674,9 @@ const App = () => {
             }
             
             if (headerRowIndex === -1) {
-                allDebugInfo.push({
+                sheetDebugInfo.push({
                     sheetName,
-                    status: 'Skipped (no header row found)',
+                    status: 'Skipped (no header row with a "folio" column found in the first 10 rows)',
                     dataPreview: dataAoA.slice(0, 15),
                 });
                 return;
@@ -677,7 +697,7 @@ const App = () => {
                     return record;
                 });
             
-            allDebugInfo.push({
+            sheetDebugInfo.push({
                 sheetName,
                 status: `Processed ${sheetJson.length} records.`,
                 headerRowIndex,
@@ -689,9 +709,25 @@ const App = () => {
             allData = allData.concat(sheetJson);
         });
 
+        const processedCount = sheetDebugInfo.filter(d => d.status.startsWith('Processed')).length;
+        const totalSheets = workbook.SheetNames.length;
+        const skippedCount = totalSheets - processedCount;
+
+        const fullDebugInfo = {
+            totalSheets,
+            processedCount,
+            skippedCount,
+            summaryMessage: `Se procesaron ${processedCount} de ${totalSheets} hojas. Omitidas: ${skippedCount}.`,
+            sheets: sheetDebugInfo
+        };
+
         setCertificateData(allData);
-        setDebugInfo(allDebugInfo);
+        setDebugInfo(fullDebugInfo);
         setDatabaseLoaded(true);
+
+        if (skippedCount > 0) {
+            setError(`¡Atención! Se omitieron ${skippedCount} de ${totalSheets} hoja(s) porque no se encontró una columna de "folio" válida en ellas. Revise los detalles en el panel de depuración de abajo.`);
+        }
       } catch (e) {
         console.error("Fallo al cargar o procesar el archivo Excel:", e);
         setError('No se pudo procesar el archivo Excel. Asegúrese de que el formato sea correcto.');
@@ -823,6 +859,7 @@ const App = () => {
                           Cargar otro archivo
                       </button>
                   </div>
+                  <DebugInfo debugData={debugInfo} />
               </div>
           );
       }
@@ -856,6 +893,7 @@ const App = () => {
                     </div>
                 )}
               <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
+              <DebugInfo debugData={debugInfo} />
           </div>
       );
   }
