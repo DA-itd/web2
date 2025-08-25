@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -44,24 +43,8 @@
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
-// INSTRUCCIÓN: Pegue aquí la URL de su aplicación web de Google Apps Script.
-//
-// PARA SOPORTE DE MÚLTIPLES HOJAS:
-// Su script de Google debe devolver un objeto JSON donde cada clave es el nombre de una hoja
-// y su valor es un array de objetos (registros).
-//
-// Ejemplo de JSON que debe devolver su script:
-// {
-//   "Hoja 1": [
-//     { "Folio": "ABC-001", "Nombre": "Juan Perez" },
-//     { "Folio": "ABC-002", "Nombre": "Maria Lopez" }
-//   ],
-//   "Hoja 3": [
-//     { "Folio": "XYZ-001", "Nombre": "Pedro Gomez" }
-//   ]
-// }
-//
-// Si solo tiene una hoja, puede devolver: { "miHoja": [ ...registros... ] }
+// URL de la aplicación web de Google Apps Script proporcionada por el usuario.
+// La aplicación ahora se conectará automáticamente a esta fuente de datos.
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbylDDBbYUosClsroAaWpjokoC9kkfYQAipnrigW2s5jRu6-aPLrKe2v4mN9OWZQNQAg_w/exec';
 
 // ============================================================================
@@ -545,7 +528,7 @@ const DebugInfo = ({ debugData }) => {
   const summaryMessage = isNewFormat ? debugData.summaryMessage : null;
   const dataToDisplay = isNewFormat ? debugData.sheets : [];
   const instruction = isNewFormat && debugData.skippedCount > 0 
-    ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible en las primeras filas. Por favor, revise la vista previa de datos a continuación y corrija el archivo."
+    ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible en las primeras filas. Por favor, revise la vista previa y los encabezados encontrados a continuación para corregir el origen de datos."
     : "Si algunas hojas no se cargan, copie y pegue todo el contenido de este cuadro para ayudar a resolver el problema.";
 
 
@@ -564,6 +547,7 @@ const DebugInfo = ({ debugData }) => {
               </span>
             </div>
             {sheet.reason && <p className="text-xs text-red-300 mt-1">{sheet.reason}</p>}
+             {sheet.foundColumns && <p className="text-xs text-slate-400 mt-1">Cabeceras encontradas: <span className="font-mono text-slate-300">{sheet.foundColumns.join(', ')}</span></p>}
             <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) detectada(s).</p>
             {sheet.dataPreview && sheet.dataPreview.length > 0 && (
               <details className="mt-2">
@@ -585,13 +569,14 @@ const App = () => {
     const { useState, useEffect, useCallback } = React;
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [loadingSource, setLoadingSource] = useState('');
     const [error, setError] = useState(null);
     const [validationStatus, setValidationStatus] = useState(ValidationStatus.IDLE);
     const [validationResult, setValidationResult] = useState(null);
     const [query, setQuery] = useState('');
     const [debugInfo, setDebugInfo] = useState(null);
 
-    const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'certificado'];
+    const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'no de folio', 'no. folio', 'certificado'];
 
     const processData = useCallback((sheetsData, source) => {
         let allRecords = [];
@@ -622,7 +607,8 @@ const App = () => {
                     status: 'skipped',
                     reason: "No se encontró una columna de 'folio' reconocible.",
                     rowCount: sheetData.length,
-                    dataPreview: sheetData.slice(0, 3)
+                    dataPreview: sheetData.slice(0, 3),
+                    foundColumns: Object.keys(firstRow)
                 });
             } else {
                 processedCount++;
@@ -662,6 +648,7 @@ const App = () => {
 
     const handleFileProcessed = useCallback((arrayBuffer) => {
         try {
+            setLoadingSource('el archivo local');
             const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
             const sheetsData = {};
             workbook.SheetNames.forEach(sheetName => {
@@ -682,6 +669,7 @@ const App = () => {
         const useGoogleSheets = GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
         if (useGoogleSheets) {
             setLoading(true);
+            setLoadingSource('Google Sheets');
             setError(null);
             fetch(GOOGLE_SCRIPT_URL)
                 .then(response => {
@@ -698,8 +686,7 @@ const App = () => {
                 })
                 .catch(err => {
                     console.error("Error fetching from Google Sheets:", err);
-                    setError(`Error al conectar con Google Sheets: ${err.message}. Mostrando carga manual de archivo.`);
-                    // Fallback to manual upload by setting data to null
+                    setError(`Error al conectar con Google Sheets: ${err.message}. Puede cargar un archivo manualmente como alternativa.`);
                     setData(null);
                 })
                 .finally(() => {
@@ -738,7 +725,8 @@ const App = () => {
         setValidationStatus(ValidationStatus.IDLE);
     }
     
-    const showUploader = !data && GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
+    // Show uploader if google sheets failed or was never configured
+    const showUploader = !data && (error || GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE');
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans">
@@ -759,7 +747,7 @@ const App = () => {
                     <div className="flex flex-col items-center justify-center p-12 text-center">
                         <SpinnerIcon />
                         <p className="mt-4 text-lg font-semibold text-slate-700">Cargando datos...</p>
-                        <p className="text-slate-500">Conectando con la base de datos.</p>
+                        <p className="text-slate-500">Conectando con {loadingSource}.</p>
                     </div>
                 )}
                 
@@ -781,14 +769,8 @@ const App = () => {
                         <ValidationResult status={validationStatus} result={validationResult} />
                         <DebugInfo debugData={debugInfo} />
                     </>
-                ) : !loading && (showUploader || error) && (
+                ) : !loading && showUploader && (
                      <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
-                )}
-                
-                {data && GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE' && (
-                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm">
-                        <p><span className="font-bold">Modo Archivo Local:</span> Los datos se han cargado desde un archivo .xlsx. La información desaparecerá si recarga la página. Para una conexión permanente, configure la URL de Google Apps Script en el archivo HTML.</p>
-                    </div>
                 )}
 
             </main>
