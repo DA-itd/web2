@@ -441,29 +441,37 @@ const App = () => {
             if (!worksheet || !worksheet['!ref']) {
                 return; // Skip empty or invalid sheets
             }
-            
-            // Convert sheet to array of arrays, ignoring blank rows
+
+            // Convert sheet to an array of arrays, stripping truly blank rows.
             const dataAoA = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false });
 
-            // Skip sheets with no header or no data rows
-            if (dataAoA.length < 2) {
+            // Find the first row that has at least one non-empty cell. We'll assume this is the header.
+            // This is more robust than just assuming the first row is the header.
+            const headerRowIndex = dataAoA.findIndex(row => Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== ''));
+
+            // If no potential header row is found, skip the sheet.
+            if (headerRowIndex === -1) {
                 return;
             }
 
-            const headers = dataAoA[0].map(h => (h ? String(h).trim() : ''));
-            const rows = dataAoA.slice(1);
+            const headers = dataAoA[headerRowIndex].map(h => (h ? String(h).trim() : ''));
+            
+            // Get all subsequent rows as data.
+            const dataRows = dataAoA.slice(headerRowIndex + 1);
 
-            const sheetJson = rows.map(row => {
-                const record = {};
-                headers.forEach((header, i) => {
-                    // Only map columns that have a header name.
-                    // This prevents creating keys for empty header columns.
-                    if (header) { 
-                        record[header] = row[i];
-                    }
+            const sheetJson = dataRows
+                // We still filter here in case there are empty-like rows (e.g., [null, null]) that weren't stripped.
+                .filter(row => Array.isArray(row) && row.some(cell => cell !== null && cell !== undefined && String(cell).trim() !== '')) 
+                .map(row => {
+                    const record = {};
+                    headers.forEach((header, i) => {
+                        if (header && i < row.length) { 
+                            record[header] = row[i];
+                        }
+                    });
+                    return record;
                 });
-                return record;
-            });
+            
             allData = allData.concat(sheetJson);
         });
 
