@@ -41,10 +41,54 @@
     <div id="root"></div>
     <script type="text/babel">
 // ============================================================================
+// INSTRUCCIONES PARA EL DESARROLLADOR DE GOOGLE APPS SCRIPT
+// ============================================================================
+// ¡IMPORTANTE! Para que la conexión automática con Google Sheets funcione,
+// el script de Google debe permitir solicitudes desde otras páginas web (CORS).
+// El error "Failed to fetch" ocurre porque este permiso no está configurado.
+//
+// Para solucionarlo, asegúrese de que la función `doGet(e)` en su script de
+// Google se vea exactamente así:
+//
+// function doGet(e) {
+//   // === INICIO DE SU LÓGICA ===
+//   // Aquí va su código para leer las hojas de cálculo y preparar el objeto `sheetsData`.
+//   // Ejemplo: const sheetsData = { "Hoja 1": [...], "Hoja 2": [...] };
+//   const ss = SpreadsheetApp.getActiveSpreadsheet();
+//   const sheets = ss.getSheets();
+//   const sheetsData = {};
+//
+//   sheets.forEach(sheet => {
+//     const sheetName = sheet.getName();
+//     const data = sheet.getDataRange().getValues();
+//     const headers = data.shift();
+//     const json = data.map(row => {
+//       let obj = {};
+//       headers.forEach((header, i) => {
+//         obj[header] = row[i];
+//       });
+//       return obj;
+//     });
+//     sheetsData[sheetName] = json;
+//   });
+//   // === FIN DE SU LÓGICA ===
+//
+//   return ContentService.createTextOutput(JSON.stringify(sheetsData))
+//     .setMimeType(ContentService.MimeType.JSON)
+//     .withHeaders({
+//       'Access-Control-Allow-Origin': '*'
+//     });
+// }
+//
+// La parte clave es `.withHeaders({'Access-Control-Allow-Origin': '*'})`.
+// Después de guardar este cambio, debe volver a desplegar su script
+// como "Nueva implementación" para que los cambios surtan efecto.
+// ============================================================================
+
+
+// ============================================================================
 // CONFIGURATION
 // ============================================================================
-// URL de la aplicación web de Google Apps Script proporcionada por el usuario.
-// La aplicación ahora se conectará automáticamente a esta fuente de datos.
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbylDDBbYUosClsroAaWpjokoC9kkfYQAipnrigW2s5jRu6-aPLrKe2v4mN9OWZQNQAg_w/exec';
 
 // ============================================================================
@@ -528,15 +572,26 @@ const DebugInfo = ({ debugData }) => {
   const summaryMessage = isNewFormat ? debugData.summaryMessage : null;
   const dataToDisplay = isNewFormat ? debugData.sheets : [];
   const instruction = isNewFormat && debugData.skippedCount > 0 
-    ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible en las primeras filas. Por favor, revise la vista previa y los encabezados encontrados a continuación para corregir el origen de datos."
+    ? "La(s) hoja(s) omitida(s) no tenían una columna 'folio' reconocible, estaban vacías o no se pudieron leer. Por favor, revise los detalles a continuación."
     : "Si algunas hojas no se cargan, copie y pegue todo el contenido de este cuadro para ayudar a resolver el problema.";
-
+  const rawSheetNames = debugData.rawSheetNames || [];
 
   return (
     <div className="mt-8 p-4 bg-slate-800 text-white rounded-lg shadow-inner animate-fade-in">
       <h3 className="text-lg font-bold mb-2 text-yellow-300">Información de Depuración</h3>
       {summaryMessage && <p className="text-sm text-slate-300 mb-2">{summaryMessage}</p>}
       <p className="text-xs text-slate-400 mb-4">{instruction}</p>
+
+      <div className="mb-4 p-3 rounded bg-slate-900/50">
+        <h4 className="text-sm font-semibold text-slate-300">Análisis del Archivo</h4>
+        <p className="text-xs text-slate-400 mt-1">
+          Se detectaron las siguientes hojas en el archivo fuente:
+        </p>
+        <pre className="mt-2 text-xs bg-black/50 p-2 rounded overflow-x-auto">
+          <code>{rawSheetNames.length > 0 ? rawSheetNames.join(', ') : 'Ninguna hoja detectada.'}</code>
+        </pre>
+      </div>
+
       <div className="space-y-4">
         {dataToDisplay.map((sheet, index) => (
           <div key={index} className={`p-3 rounded ${sheet.status === 'processed' ? 'bg-green-900/50' : 'bg-red-900/50'}`}>
@@ -547,7 +602,7 @@ const DebugInfo = ({ debugData }) => {
               </span>
             </div>
             {sheet.reason && <p className="text-xs text-red-300 mt-1">{sheet.reason}</p>}
-             {sheet.foundColumns && <p className="text-xs text-slate-400 mt-1">Cabeceras encontradas: <span className="font-mono text-slate-300">{sheet.foundColumns.join(', ')}</span></p>}
+            {sheet.foundColumns && <p className="text-xs text-slate-400 mt-1">Cabeceras encontradas: <span className="font-mono text-slate-300">{sheet.foundColumns.join(', ')}</span></p>}
             <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) detectada(s).</p>
             {sheet.dataPreview && sheet.dataPreview.length > 0 && (
               <details className="mt-2">
@@ -578,27 +633,50 @@ const App = () => {
 
     const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'no de folio', 'no. folio', 'certificado'];
 
-    const processData = useCallback((sheetsData, source) => {
+    const processData = useCallback((sheetsData, source, rawSheetNames) => {
         let allRecords = [];
         let processedCount = 0;
         let skippedCount = 0;
         const debugSheets = [];
+        const allDetectedSheetNames = rawSheetNames || Object.keys(sheetsData);
 
-        Object.entries(sheetsData).forEach(([sheetName, sheetData]) => {
-            if (!Array.isArray(sheetData) || sheetData.length === 0) {
+        allDetectedSheetNames.forEach(sheetName => {
+            const sheetData = sheetsData[sheetName];
+
+            if (!sheetData || !Array.isArray(sheetData) || sheetData.length === 0) {
                 skippedCount++;
                 debugSheets.push({
                     sheetName,
                     status: 'skipped',
-                    reason: 'La hoja está vacía o no es un array.',
+                    reason: 'La hoja está vacía o no se pudo leer su contenido.',
                     rowCount: 0,
                     dataPreview: []
                 });
                 return;
             }
 
-            const firstRow = sheetData[0];
-            const folioValue = getFlexibleProperty(firstRow, FOLIO_KEYS);
+            // Find first non-empty row to determine headers
+            let firstRowWithData = null;
+            for(const row of sheetData) {
+                if(row && typeof row === 'object' && Object.keys(row).length > 0) {
+                    firstRowWithData = row;
+                    break;
+                }
+            }
+
+            if (!firstRowWithData) {
+                 skippedCount++;
+                 debugSheets.push({
+                    sheetName,
+                    status: 'skipped',
+                    reason: "La hoja no contiene filas con datos válidos.",
+                    rowCount: sheetData.length,
+                    dataPreview: [],
+                });
+                return;
+            }
+            
+            const folioValue = getFlexibleProperty(firstRowWithData, FOLIO_KEYS);
 
             if (folioValue === undefined) {
                 skippedCount++;
@@ -608,11 +686,11 @@ const App = () => {
                     reason: "No se encontró una columna de 'folio' reconocible.",
                     rowCount: sheetData.length,
                     dataPreview: sheetData.slice(0, 3),
-                    foundColumns: Object.keys(firstRow)
+                    foundColumns: Object.keys(firstRowWithData)
                 });
             } else {
                 processedCount++;
-                allRecords = allRecords.concat(sheetData);
+                allRecords = allRecords.concat(sheetData.filter(row => row && Object.keys(row).length > 0));
                 debugSheets.push({
                     sheetName,
                     status: 'processed',
@@ -629,18 +707,21 @@ const App = () => {
             setError('No se encontraron datos válidos en la fuente proporcionada. Revise la información de depuración.');
         }
 
-        const summaryMessage = `Se procesaron datos de ${processedCount} de ${processedCount + skippedCount} hoja(s) desde ${source}.`;
+        const totalSheets = allDetectedSheetNames.length;
+        const summaryMessage = `Se procesaron datos de ${processedCount} de ${totalSheets} hoja(s) detectada(s) en ${source}.`;
+        
         setDebugInfo({
             summaryMessage,
             processedCount,
             skippedCount,
             sheets: debugSheets,
+            rawSheetNames: allDetectedSheetNames,
         });
 
         if (skippedCount > 0 && processedCount > 0) {
-             setError(`Advertencia: Se omitieron ${skippedCount} hoja(s) porque no se pudo encontrar una columna de folio válida. Revise la información de depuración a continuación.`);
+             setError(<span>Advertencia: Se omitieron <strong>{skippedCount} de {totalSheets} hoja(s)</strong>. Revise la información de depuración a continuación.</span>);
         } else if (skippedCount > 0 && processedCount === 0) {
-             setError(`Error Crítico: No se pudo procesar ninguna hoja. Verifique que sus hojas de cálculo tengan una columna de folio válida.`)
+             setError(<span><strong>Error Crítico:</strong> No se pudo procesar ninguna de las {totalSheets} hojas. Verifique que sus hojas de cálculo tengan una columna de folio válida.</span>)
         }
 
     }, []);
@@ -648,15 +729,18 @@ const App = () => {
 
     const handleFileProcessed = useCallback((arrayBuffer) => {
         try {
-            setLoadingSource('el archivo local');
+            setLoadingSource('el archivo Excel');
             const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
             const sheetsData = {};
-            workbook.SheetNames.forEach(sheetName => {
+            const rawSheetNames = workbook.SheetNames || [];
+            
+            rawSheetNames.forEach(sheetName => {
                 const worksheet = workbook.Sheets[sheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet, { defval: null });
                 sheetsData[sheetName] = json;
             });
-            processData(sheetsData, "el archivo Excel");
+
+            processData(sheetsData, "el archivo Excel", rawSheetNames);
         } catch (err) {
             console.error("Error processing Excel file:", err);
             setError('Hubo un error al procesar el archivo Excel.');
@@ -682,11 +766,31 @@ const App = () => {
                     if (typeof data !== 'object' || data === null) {
                          throw new Error("La respuesta de Google Sheets no es un objeto JSON válido.");
                     }
-                    processData(data, "Google Sheets");
+                    processData(data, "Google Sheets", Object.keys(data));
                 })
                 .catch(err => {
                     console.error("Error fetching from Google Sheets:", err);
-                    setError(`Error al conectar con Google Sheets: ${err.message}. Puede cargar un archivo manualmente como alternativa.`);
+                    const isCorsError = err instanceof TypeError && err.message.includes('Failed to fetch');
+
+                    if (isCorsError) {
+                        setError(
+                            <div className="text-sm">
+                                <p className="font-bold">Acción Requerida: Error de Conexión (CORS)</p>
+                                <div className="space-y-2 mt-1">
+                                    <p>El navegador bloqueó la conexión con Google Sheets por seguridad. <strong>La solución está en su script de Google.</strong></p>
+                                    <p>Por favor, siga las instrucciones que se encuentran en los comentarios al inicio de este archivo (<code>index.html</code>) para corregir su script y permitir la conexión.</p>
+                                    <p className="font-semibold">Mientras tanto, puede cargar su archivo <code>.xlsx</code> manualmente a continuación.</p>
+                                </div>
+                            </div>
+                        );
+                    } else {
+                        setError(
+                             <div className="text-sm">
+                                <p className="font-bold">Error de Conexión</p>
+                                <p className="mt-1">{`No se pudo conectar con Google Sheets: ${err.message}. Puede cargar el archivo manualmente a continuación.`}</p>
+                            </div>
+                        );
+                    }
                     setData(null);
                 })
                 .finally(() => {
@@ -725,8 +829,7 @@ const App = () => {
         setValidationStatus(ValidationStatus.IDLE);
     }
     
-    // Show uploader if google sheets failed or was never configured
-    const showUploader = !data && (error || GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE');
+    const showUploader = !data && (error || !GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE');
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans">
@@ -756,8 +859,7 @@ const App = () => {
                      <div className="flex">
                        <div className="py-1"><InfoIcon className="h-6 w-6 text-yellow-500 mr-3" /></div>
                        <div>
-                         <p className="font-bold">Notificación</p>
-                         <p className="text-sm">{error}</p>
+                         {error}
                        </div>
                      </div>
                    </div>
@@ -767,7 +869,7 @@ const App = () => {
                      <>
                         <SearchBar onSearch={handleSearch} onClear={handleClear} query={query} setQuery={setQuery} />
                         <ValidationResult status={validationStatus} result={validationResult} />
-                        <DebugInfo debugData={debugInfo} />
+                        {debugInfo && <DebugInfo debugData={debugInfo} />}
                     </>
                 ) : !loading && showUploader && (
                      <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
@@ -782,7 +884,9 @@ const App = () => {
     );
 };
 
-ReactDOM.render(<App />, document.getElementById('root'));
+const container = document.getElementById('root');
+const root = ReactDOM.createRoot(container);
+root.render(<App />);
 
     </script>
   <script type="module" src="/index.tsx"></script>
