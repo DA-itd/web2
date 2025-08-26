@@ -41,57 +41,6 @@
     <div id="root"></div>
     <script type="text/babel">
 // ============================================================================
-// INSTRUCCIONES PARA EL DESARROLLADOR DE GOOGLE APPS SCRIPT
-// ============================================================================
-// ¡IMPORTANTE! Para que la conexión automática con Google Sheets funcione,
-// el script de Google debe permitir solicitudes desde otras páginas web (CORS).
-// El error "Failed to fetch" ocurre porque este permiso no está configurado.
-//
-// Para solucionarlo, asegúrese de que la función `doGet(e)` en su script de
-// Google se vea exactamente así:
-//
-// function doGet(e) {
-//   // === INICIO DE SU LÓGICA ===
-//   // Aquí va su código para leer las hojas de cálculo y preparar el objeto `sheetsData`.
-//   // Ejemplo: const sheetsData = { "Hoja 1": [...], "Hoja 2": [...] };
-//   const ss = SpreadsheetApp.getActiveSpreadsheet();
-//   const sheets = ss.getSheets();
-//   const sheetsData = {};
-//
-//   sheets.forEach(sheet => {
-//     const sheetName = sheet.getName();
-//     const data = sheet.getDataRange().getValues();
-//     const headers = data.shift();
-//     const json = data.map(row => {
-//       let obj = {};
-//       headers.forEach((header, i) => {
-//         obj[header] = row[i];
-//       });
-//       return obj;
-//     });
-//     sheetsData[sheetName] = json;
-//   });
-//   // === FIN DE SU LÓGICA ===
-//
-//   return ContentService.createTextOutput(JSON.stringify(sheetsData))
-//     .setMimeType(ContentService.MimeType.JSON)
-//     .withHeaders({
-//       'Access-Control-Allow-Origin': '*'
-//     });
-// }
-//
-// La parte clave es `.withHeaders({'Access-Control-Allow-Origin': '*'})`.
-// Después de guardar este cambio, debe volver a desplegar su script
-// como "Nueva implementación" para que los cambios surtan efecto.
-// ============================================================================
-
-
-// ============================================================================
-// CONFIGURATION
-// ============================================================================
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwW04IRXVNHvi_3koFV7q68Cprt8LtD9AaNA6Kk5_VnyBSkKT7jxu40G1GBrI0hzFPfPw/exec';
-
-// ============================================================================
 // UTILS & TYPES
 // ============================================================================
 
@@ -369,7 +318,7 @@ const FileUploader = ({ onFileProcessed, setLoading, setError }) => {
                 aria-label="File uploader"
             />
             <UploadIcon className="h-12 w-12 text-slate-400 mb-4" />
-            <h3 className="text-xl font-semibold text-slate-800">Cargar Base de Datos (Manual)</h3>
+            <h3 className="text-xl font-semibold text-slate-800">Cargar Base de Datos</h3>
             <p className="text-slate-500 mt-1">Arrastre y suelte su archivo <span className="font-semibold text-slate-600">.xlsx</span> aquí, o haga clic para seleccionarlo.</p>
         </div>
     );
@@ -621,16 +570,14 @@ const DebugInfo = ({ debugData }) => {
 
 
 const App = () => {
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useCallback } = React;
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
-    const [loadingSource, setLoadingSource] = useState('');
     const [error, setError] = useState(null);
     const [validationStatus, setValidationStatus] = useState(ValidationStatus.IDLE);
     const [validationResult, setValidationResult] = useState(null);
     const [query, setQuery] = useState('');
     const [debugInfo, setDebugInfo] = useState(null);
-    const [showCorsHelp, setShowCorsHelp] = useState(false);
 
     const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'no de folio', 'no. folio', 'certificado'];
 
@@ -705,11 +652,11 @@ const App = () => {
             setData(allRecords);
             setError(null);
         } else {
-            setError('No se encontraron datos válidos en la fuente proporcionada. Revise la información de depuración.');
+            setError('No se encontraron datos válidos en el archivo. Revise la información de depuración.');
         }
 
         const totalSheets = allDetectedSheetNames.length;
-        const summaryMessage = `Se procesaron datos de ${processedCount} de ${totalSheets} hoja(s) detectada(s) en ${source}.`;
+        const summaryMessage = `Se procesaron datos de ${processedCount} de ${totalSheets} hoja(s) detectada(s) desde ${source}.`;
         
         setDebugInfo({
             summaryMessage,
@@ -730,7 +677,6 @@ const App = () => {
 
     const handleFileProcessed = useCallback((arrayBuffer) => {
         try {
-            setLoadingSource('el archivo Excel');
             const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
             const sheetsData = {};
             const rawSheetNames = workbook.SheetNames || [];
@@ -750,83 +696,6 @@ const App = () => {
         }
     }, [processData]);
     
-    useEffect(() => {
-        const useGoogleSheets = GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL !== 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE';
-        if (useGoogleSheets) {
-            setLoading(true);
-            setLoadingSource('Google Sheets');
-            setError(null);
-            fetch(GOOGLE_SCRIPT_URL)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`Error en la red: ${response.statusText}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (typeof data !== 'object' || data === null) {
-                         throw new Error("La respuesta de Google Sheets no es un objeto JSON válido.");
-                    }
-                    processData(data, "Google Sheets", Object.keys(data));
-                })
-                .catch(err => {
-                    console.error("Error fetching from Google Sheets:", err);
-                    const isCorsError = err instanceof TypeError && err.message.includes('Failed to fetch');
-
-                    if (isCorsError) {
-                        setError(
-                            <div className="text-sm">
-                                <p className="font-bold">Acción Requerida: Error de Conexión (CORS)</p>
-                                <div className="space-y-2 mt-1">
-                                    <p>El navegador bloqueó la conexión con Google Sheets por seguridad. <strong>La solución está en su script de Google, no en este archivo.</strong></p>
-                                    
-                                    <button onClick={() => setShowCorsHelp(prev => !prev)} className="text-blue-600 hover:underline font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 rounded px-1 py-0.5">
-                                        {showCorsHelp ? 'Ocultar instrucciones' : 'Mostrar cómo solucionarlo'}
-                                    </button>
-
-                                    {showCorsHelp && (
-                                        <div className="mt-4 p-4 bg-slate-800 text-white rounded-lg text-xs font-mono animate-fade-in">
-                                            <p className="text-slate-300 mb-2 font-sans text-sm">Edite su función <code>doGet(e)</code> en Google Apps Script para que se vea así:</p>
-                                            <pre className="bg-black/50 p-3 rounded overflow-x-auto">
-                                                <code>
-{`function doGet(e) {
-  // ... (su código para leer las hojas)
-  // Ejemplo: const sheetsData = { "Hoja 1": [...] };
-
-  return ContentService.createTextOutput(JSON.stringify(sheetsData))
-    .setMimeType(ContentService.MimeType.JSON)
-    .withHeaders({
-      'Access-Control-Allow-Origin': '*' // <-- Esta línea es la solución
-    });
-}`}
-                                                </code>
-                                            </pre>
-                                            <p className="mt-3 font-sans text-sm text-yellow-300">
-                                                <strong>¡Importante!</strong> Después de guardar, debe volver a implementar su script como "Nueva implementación" para que los cambios surtan efecto.
-                                            </p>
-                                        </div>
-                                    )}
-
-                                    <p className="font-semibold pt-2">Mientras tanto, puede cargar su archivo <code>.xlsx</code> manualmente a continuación.</p>
-                                </div>
-                            </div>
-                        );
-                    } else {
-                        setError(
-                             <div className="text-sm">
-                                <p className="font-bold">Error de Conexión</p>
-                                <p className="mt-1">{`No se pudo conectar con Google Sheets: ${err.message}. Puede cargar el archivo manualmente a continuación.`}</p>
-                            </div>
-                        );
-                    }
-                    setData(null);
-                })
-                .finally(() => {
-                    setLoading(false);
-                });
-        }
-    }, [processData]);
-
     const handleSearch = (searchQuery) => {
         if (!data) {
             setValidationStatus(ValidationStatus.ERROR);
@@ -857,8 +726,6 @@ const App = () => {
         setValidationStatus(ValidationStatus.IDLE);
     }
     
-    const showUploader = !data && (error || !GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE');
-
     return (
         <div className="bg-slate-50 min-h-screen font-sans">
             <header className="bg-white shadow-sm">
@@ -877,12 +744,12 @@ const App = () => {
                {loading && (
                     <div className="flex flex-col items-center justify-center p-12 text-center">
                         <SpinnerIcon />
-                        <p className="mt-4 text-lg font-semibold text-slate-700">Cargando datos...</p>
-                        <p className="text-slate-500">Conectando con {loadingSource}.</p>
+                        <p className="mt-4 text-lg font-semibold text-slate-700">Procesando archivo...</p>
+                        <p className="text-slate-500">Por favor, espere.</p>
                     </div>
                 )}
                 
-                {error && (
+                {error && !loading && (
                    <div className="mb-6 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded-r-lg shadow-md" role="alert">
                      <div className="flex">
                        <div className="py-1"><InfoIcon className="h-6 w-6 text-yellow-500 mr-3" /></div>
@@ -899,7 +766,7 @@ const App = () => {
                         <ValidationResult status={validationStatus} result={validationResult} />
                         {debugInfo && <DebugInfo debugData={debugInfo} />}
                     </>
-                ) : !loading && showUploader && (
+                ) : !loading && (
                      <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
                 )}
 
