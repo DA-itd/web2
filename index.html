@@ -654,6 +654,15 @@ const App = () => {
                 // Only add the record if it has some data and a valid folio
                 const folioValue = getFlexibleProperty(record, FOLIO_KEYS);
                 if (hasData && folioValue !== undefined && folioValue !== null) {
+                    // Find the actual folio key to sanitize its value directly in the record
+                    const folioKey = Object.keys(record).find(k => {
+                        const lowerK = String(k || '').trim().toLowerCase();
+                        return FOLIO_KEYS.includes(lowerK);
+                    });
+                    if (folioKey) {
+                        // Aggressively remove ALL whitespace characters (spaces, tabs, non-breaking spaces, etc.)
+                        record[folioKey] = String(record[folioKey]).replace(/\s/g, ''); 
+                    }
                     sheetJsonData.push(record);
                 }
             }
@@ -745,11 +754,14 @@ const App = () => {
             return;
         }
         
-        const trimmedQuery = searchQuery.trim().toLowerCase();
+        // Aggressively clean the search query to match the cleaning done on the data
+        const trimmedQuery = searchQuery.replace(/\s/g, '').toLowerCase();
         
         const result = data.find(item => {
            const folio = getFlexibleProperty(item, FOLIO_KEYS);
-           return folio && String(folio).trim().toLowerCase() === trimmedQuery;
+           // The folio value in `item` is already cleaned from processData.
+           // We just need to convert to string (for safety) and lowercase.
+           return folio && String(folio).toLowerCase() === trimmedQuery;
         });
 
         if (result) {
