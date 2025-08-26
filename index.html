@@ -716,7 +716,16 @@ const App = () => {
             
             rawSheetNames.forEach(sheetName => {
                 const worksheet = workbook.Sheets[sheetName];
-                // CRITICAL CHANGE: Convert to array of arrays to bypass auto-header/range detection.
+
+                // By deleting the '!ref' property, we force SheetJS to scan all cells
+                // to determine the actual data range. This is a robust way to fix files
+                // where the range metadata is incorrect (e.g., reports 454 rows when
+                // there are actually more), which was causing new data not to be read.
+                if (worksheet && worksheet['!ref']) {
+                    delete worksheet['!ref'];
+                }
+                
+                // Convert to array of arrays to bypass auto-header/range detection.
                 const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, header: 1 });
                 sheetsData[sheetName] = json;
             });
