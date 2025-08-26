@@ -552,7 +552,7 @@ const DebugInfo = ({ debugData }) => {
             </div>
             {sheet.reason && <p className="text-xs text-red-300 mt-1">{sheet.reason}</p>}
             {sheet.foundColumns && <p className="text-xs text-slate-400 mt-1">Cabeceras encontradas: <span className="font-mono text-slate-300">{sheet.foundColumns.join(', ')}</span></p>}
-            <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) detectada(s).</p>
+            <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) de datos procesada(s).</p>
             {sheet.dataPreview && sheet.dataPreview.length > 0 && (
               <details className="mt-2">
                 <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">Vista previa de datos</summary>
@@ -589,70 +589,104 @@ const App = () => {
         const allDetectedSheetNames = rawSheetNames || Object.keys(sheetsData);
 
         allDetectedSheetNames.forEach(sheetName => {
-            const sheetData = sheetsData[sheetName];
+            const sheetRows = sheetsData[sheetName]; // This is an array of arrays
 
-            if (!sheetData || !Array.isArray(sheetData) || sheetData.length === 0) {
+            if (!sheetRows || !Array.isArray(sheetRows) || sheetRows.length === 0) {
                 skippedCount++;
                 debugSheets.push({
                     sheetName,
                     status: 'skipped',
                     reason: 'La hoja está vacía o no se pudo leer su contenido.',
                     rowCount: 0,
-                    dataPreview: []
                 });
                 return;
             }
 
-            // Find first non-empty row to determine headers
-            let firstRowWithData = null;
-            for(const row of sheetData) {
-                if(row && typeof row === 'object' && Object.keys(row).length > 0) {
-                    firstRowWithData = row;
-                    break;
+            let headerRowIndex = -1;
+            let headers = [];
+
+            // 1. Find the header row by looking for a 'folio' key
+            for (let i = 0; i < sheetRows.length; i++) {
+                const row = sheetRows[i];
+                if (row && Array.isArray(row) && row.length > 0) {
+                    const lowerCaseRow = row.map(cell => String(cell || '').trim().toLowerCase());
+                    if (lowerCaseRow.some(cell => FOLIO_KEYS.includes(cell))) {
+                        headers = row.map(cell => String(cell || '').trim());
+                        headerRowIndex = i;
+                        break;
+                    }
                 }
             }
 
-            if (!firstRowWithData) {
-                 skippedCount++;
-                 debugSheets.push({
-                    sheetName,
-                    status: 'skipped',
-                    reason: "La hoja no contiene filas con datos válidos.",
-                    rowCount: sheetData.length,
-                    dataPreview: [],
-                });
-                return;
-            }
-            
-            const folioValue = getFlexibleProperty(firstRowWithData, FOLIO_KEYS);
-
-            if (folioValue === undefined) {
+            if (headerRowIndex === -1) {
                 skippedCount++;
                 debugSheets.push({
                     sheetName,
                     status: 'skipped',
-                    reason: "No se encontró una columna de 'folio' reconocible.",
-                    rowCount: sheetData.length,
-                    dataPreview: sheetData.slice(0, 3),
-                    foundColumns: Object.keys(firstRowWithData)
+                    reason: "No se encontró una columna de 'folio' reconocible en ninguna fila.",
+                    rowCount: 0,
+                    dataPreview: sheetRows.slice(0, 5) // Show raw row preview
                 });
-            } else {
+                return;
+            }
+
+            // 2. Convert rows after the header into objects
+            const sheetJsonData = [];
+            for (let i = headerRowIndex + 1; i < sheetRows.length; i++) {
+                const rowData = sheetRows[i];
+                // Skip rows that are completely empty
+                if (!rowData || !Array.isArray(rowData) || rowData.every(cell => cell === null || cell === undefined)) {
+                    continue;
+                }
+
+                const record = {};
+                let hasData = false;
+                headers.forEach((header, index) => {
+                    if (header) { // Only map columns that have a header name
+                        const value = rowData[index];
+                        record[header] = value;
+                        if (value !== null && value !== undefined && String(value).trim() !== '') {
+                            hasData = true;
+                        }
+                    }
+                });
+
+                // Only add the record if it has some data and a valid folio
+                const folioValue = getFlexibleProperty(record, FOLIO_KEYS);
+                if (hasData && folioValue !== undefined && folioValue !== null) {
+                    sheetJsonData.push(record);
+                }
+            }
+            
+            if (sheetJsonData.length > 0) {
                 processedCount++;
-                allRecords = allRecords.concat(sheetData.filter(row => row && Object.keys(row).length > 0));
+                allRecords = allRecords.concat(sheetJsonData);
                 debugSheets.push({
                     sheetName,
                     status: 'processed',
-                    rowCount: sheetData.length,
-                    dataPreview: sheetData.slice(0, 3)
+                    rowCount: sheetJsonData.length, // Report number of actual data rows
+                    dataPreview: sheetJsonData.slice(0, 3),
+                    foundColumns: headers.filter(h => h)
+                });
+            } else {
+                skippedCount++;
+                debugSheets.push({
+                    sheetName,
+                    status: 'skipped',
+                    reason: "Se encontró una fila de encabezado, pero no filas de datos válidas debajo de ella.",
+                    rowCount: 0,
+                    dataPreview: sheetRows.slice(headerRowIndex, headerRowIndex + 4),
+                    foundColumns: headers.filter(h => h)
                 });
             }
         });
 
         if (allRecords.length > 0) {
             setData(allRecords);
-            setError(null);
+            setError(null); 
         } else {
             setError('No se encontraron datos válidos en el archivo. Revise la información de depuración.');
+            setData(null);
         }
 
         const totalSheets = allDetectedSheetNames.length;
@@ -667,12 +701,11 @@ const App = () => {
         });
 
         if (skippedCount > 0 && processedCount > 0) {
-             setError(<span>Advertencia: Se omitieron <strong>{skippedCount} de {totalSheets} hoja(s)</strong>. Revise la información de depuración a continuación.</span>);
+            setError(<span>Advertencia: Se omitieron <strong>{skippedCount} de {totalSheets} hoja(s)</strong>. Revise la información de depuración a continuación.</span>);
         } else if (skippedCount > 0 && processedCount === 0) {
-             setError(<span><strong>Error Crítico:</strong> No se pudo procesar ninguna de las {totalSheets} hojas. Verifique que sus hojas de cálculo tengan una columna de folio válida.</span>)
+            setError(<span><strong>Error Crítico:</strong> No se pudo procesar ninguna de las {totalSheets} hojas. Verifique que sus hojas de cálculo tengan una columna de folio válida y datos debajo.</span>)
         }
-
-    }, []);
+    }, [FOLIO_KEYS]);
 
 
     const handleFileProcessed = useCallback((arrayBuffer) => {
@@ -683,7 +716,8 @@ const App = () => {
             
             rawSheetNames.forEach(sheetName => {
                 const worksheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, blankrows: true });
+                // CRITICAL CHANGE: Convert to array of arrays to bypass auto-header/range detection.
+                const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, header: 1 });
                 sheetsData[sheetName] = json;
             });
 
