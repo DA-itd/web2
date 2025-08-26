@@ -1,0 +1,6 @@
+
+{
+  "name": "Certificate Validator",
+  "description": "An intelligent tool to upload an Excel database of certificates and quickly validate them by searching for a specific 'folio' or ID. Provides detailed feedback and AI-powered assistance for troubleshooting file parsing issues.",
+  "requestFramePermissions": []
+}
