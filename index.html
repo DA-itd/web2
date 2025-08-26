@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-ar" />
+    <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Certificate Validator</title>
@@ -36,16 +36,6 @@
         }
     </style>
 <link rel="stylesheet" href="/index.css">
-<script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.15.0",
-    "react": "https://aistudiocdn.com/react@^19.1.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "react/": "https://aistudiocdn.com/react@^19.1.1/"
-  }
-}
-</script>
 </head>
   <body>
     <div id="root"></div>
@@ -141,7 +131,7 @@ const formatDate = (dateValue) => {
         return String(dateValue);
     }
 
-    return date.toLocaleDateД('es-ES', {
+    return date.toLocaleDateString('es-ES', {
         day: '2-digit',
         month: 'long',
         year: 'numeric',
@@ -524,7 +514,7 @@ const ValidationResult = ({ status, result }) => {
   return <div className="mt-6"></div>;
 };
 
-const DebugInfo = ({ debugData, autoExpandSkipped }) => {
+const DebugInfo = ({ debugData }) => {
   if (!debugData) return null;
 
   const isNewFormat = typeof debugData === 'object' && debugData !== null && !Array.isArray(debugData);
@@ -564,7 +554,7 @@ const DebugInfo = ({ debugData, autoExpandSkipped }) => {
             {sheet.foundColumns && <p className="text-xs text-slate-400 mt-1">Cabeceras encontradas: <span className="font-mono text-slate-300">{sheet.foundColumns.join(', ')}</span></p>}
             <p className="text-xs text-slate-400 mt-1">{sheet.rowCount} fila(s) detectada(s).</p>
             {sheet.dataPreview && sheet.dataPreview.length > 0 && (
-              <details className="mt-2" open={autoExpandSkipped && sheet.status === 'skipped'}>
+              <details className="mt-2">
                 <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">Vista previa de datos</summary>
                 <pre className="mt-1 text-xs bg-black/50 p-2 rounded overflow-x-auto">
                   <code>{JSON.stringify(sheet.dataPreview, null, 2)}</code>
@@ -578,30 +568,6 @@ const DebugInfo = ({ debugData, autoExpandSkipped }) => {
   );
 };
 
-const AiHelpDisplay = ({ suggestion, onClear }) => {
-    // Basic markdown-to-html: bold, lists
-    const formattedSuggestion = suggestion
-        .split('\n')
-        .map(line => {
-            line = line.replace(/\*\*(.*?)\*\*/g, '<strong class="text-emerald-300">$1</strong>'); // Bold
-            if (line.trim().startsWith('* ') || line.trim().startsWith('- ')) {
-                return `<li class="ml-5 list-disc">${line.substring(2)}</li>`;
-            }
-            return `<p class="mb-2">${line}</p>`;
-        })
-        .join('');
-
-    return (
-        <div className="mt-6 p-6 bg-slate-800 border border-cyan-500/30 rounded-lg animate-fade-in shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-xl font-bold text-cyan-300">Asistente de IA para Excel</h3>
-                 <button onClick={onClear} className="text-slate-400 hover:text-white">&times;</button>
-            </div>
-            <div className="prose prose-invert prose-sm text-slate-300 max-w-none" dangerouslySetInnerHTML={{ __html: formattedSuggestion }}></div>
-        </div>
-    );
-};
-
 
 const App = () => {
     const { useState, useCallback } = React;
@@ -613,55 +579,7 @@ const App = () => {
     const [query, setQuery] = useState('');
     const [debugInfo, setDebugInfo] = useState(null);
 
-    const [isFixingWithAi, setIsFixingWithAi] = useState(false);
-    const [aiFixSuggestion, setAiFixSuggestion] = useState('');
-    const [aiFixError, setAiFixError] = useState(null);
-
     const FOLIO_KEYS = ['folio', 'id', 'clave', 'constancia', 'no. de folio', 'no de folio', 'no. folio', 'certificado'];
-    
-    const handleGetAiFix = useCallback(async () => {
-        if (!debugInfo) return;
-        setIsFixingWithAi(true);
-        setAiFixSuggestion('');
-        setAiFixError(null);
-
-        try {
-            const { GoogleGenAI } = await import('@google/genai');
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-            const problemDetails = debugInfo.sheets
-                .filter(sheet => sheet.status === 'skipped')
-                .map(sheet => `\n- Hoja: "${sheet.sheetName}"\n- Razón por la que fue omitida: ${sheet.reason}\n- Cabeceras que encontré: ${sheet.foundColumns ? `[${sheet.foundColumns.join(', ')}]` : 'Ninguna'}\n- Número de filas con datos: ${sheet.rowCount}`)
-                .join('');
-
-            const prompt = `
-Eres un asistente experto en análisis de datos, especializado en Microsoft Excel. Tu tono es amigable, claro y muy paciente.
-Un usuario está intentando cargar un archivo Excel en una aplicación, pero algunas hojas no se procesan correctamente.
-La aplicación requiere que cada hoja de cálculo contenga una columna con un encabezado de "Folio" (o variantes como "ID", "Clave", "Constancia").
-
-Este es un resumen del problema detectado en su archivo:
-${problemDetails}
-
-Tu tarea es generar instrucciones paso a paso, muy sencillas y en español, para que el usuario pueda corregir su archivo Excel y cargarlo exitosamente.
-Debes explicar por qué cada hoja fue omitida y cómo arreglarla. Por ejemplo, si una cabecera es "FOLIO DE AGOSTO", explícale que debe cambiarla a simplemente "Folio". Si una hoja está vacía, indícale que debe agregar datos o eliminarla.
-Usa markdown para formatear tu respuesta (ej. **texto en negrita** para enfatizar y listas con * o -).
-Termina con una nota de ánimo.
-`;
-
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: prompt,
-            });
-            
-            setAiFixSuggestion(response.text);
-
-        } catch (err) {
-            console.error("Error with AI fix suggestion:", err);
-            setAiFixError('Hubo un problema al contactar al asistente de IA. Asegúrate de que tu API Key esté configurada y revisa la consola para más detalles.');
-        } finally {
-            setIsFixingWithAi(false);
-        }
-    }, [debugInfo]);
 
     const processData = useCallback((sheetsData, source, rawSheetNames) => {
         let allRecords = [];
@@ -669,8 +587,6 @@ Termina con una nota de ánimo.
         let skippedCount = 0;
         const debugSheets = [];
         const allDetectedSheetNames = rawSheetNames || Object.keys(sheetsData);
-        setAiFixSuggestion('');
-        setAiFixError(null);
 
         allDetectedSheetNames.forEach(sheetName => {
             const sheetData = sheetsData[sheetName];
@@ -687,6 +603,7 @@ Termina con una nota de ánimo.
                 return;
             }
 
+            // Find first non-empty row to determine headers
             let firstRowWithData = null;
             for(const row of sheetData) {
                 if(row && typeof row === 'object' && Object.keys(row).length > 0) {
@@ -750,9 +667,9 @@ Termina con una nota de ánimo.
         });
 
         if (skippedCount > 0 && processedCount > 0) {
-             setError(<span>Advertencia: Se omitieron <strong>{skippedCount} de {totalSheets} hoja(s)</strong>. <strong>Revise el panel de depuración de abajo</strong> para ver la causa de cada hoja omitida.</span>);
+             setError(<span>Advertencia: Se omitieron <strong>{skippedCount} de {totalSheets} hoja(s)</strong>. Revise la información de depuración a continuación.</span>);
         } else if (skippedCount > 0 && processedCount === 0) {
-             setError(<span><strong>Error Crítico:</strong> No se pudo procesar ninguna de las {totalSheets} hojas. Verifique que sus hojas tengan una columna con un encabezado como 'Folio' o 'ID'. <strong>Consulte el panel de depuración para más detalles.</strong></span>)
+             setError(<span><strong>Error Crítico:</strong> No se pudo procesar ninguna de las {totalSheets} hojas. Verifique que sus hojas de cálculo tengan una columna de folio válida.</span>)
         }
 
     }, []);
@@ -766,7 +683,7 @@ Termina con una nota de ánimo.
             
             rawSheetNames.forEach(sheetName => {
                 const worksheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet, { defval: null });
+                const json = XLSX.utils.sheet_to_json(worksheet, { defval: null, blankrows: true });
                 sheetsData[sheetName] = json;
             });
 
@@ -840,44 +757,14 @@ Termina con una nota de ánimo.
                          {error}
                        </div>
                      </div>
-                      {debugInfo && debugInfo.skippedCount > 0 && !data && (
-                        <div className="mt-4 text-center">
-                            <button
-                                onClick={handleGetAiFix}
-                                disabled={isFixingWithAi}
-                                className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:bg-slate-400 disabled:cursor-wait transition-all transform hover:scale-105 shadow-lg"
-                            >
-                                {isFixingWithAi ? (
-                                    <>
-                                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        Analizando con IA...
-                                    </>
-                                ) : (
-                                    '✨ Ayúdame a arreglarlo con IA'
-                                )}
-                            </button>
-                        </div>
-                     )}
                    </div>
                 )}
-
-                {aiFixError && (
-                    <div className="mb-6 bg-red-50 border-l-4 border-red-500 text-red-800 p-4 rounded-r-lg shadow-md" role="alert">
-                         <p>{aiFixError}</p>
-                    </div>
-                )}
-                
-                {aiFixSuggestion && <AiHelpDisplay suggestion={aiFixSuggestion} onClear={() => setAiFixSuggestion('')} />}
-
                 
                 {data ? (
                      <>
                         <SearchBar onSearch={handleSearch} onClear={handleClear} query={query} setQuery={setQuery} />
                         <ValidationResult status={validationStatus} result={validationResult} />
-                        {debugInfo && <DebugInfo debugData={debugInfo} autoExpandSkipped={debugInfo.skippedCount > 0} />}
+                        {debugInfo && <DebugInfo debugData={debugInfo} />}
                     </>
                 ) : !loading && (
                      <FileUploader onFileProcessed={handleFileProcessed} setLoading={setLoading} setError={setError} />
