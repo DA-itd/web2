@@ -1,4 +1,3 @@
-
 import { CertificateData } from '../types';
 import { POTENTIAL_FOLIO_HEADERS, DATABASE_URL } from '../constants';
 
@@ -53,7 +52,9 @@ const processFile = (arrayBuffer: ArrayBuffer): CertificateData[] => {
 };
 
 export const loadDatabase = async (): Promise<CertificateData[]> => {
-  const response = await fetch(DATABASE_URL);
+  // Se añade un parámetro único a la URL para evitar que el navegador use una versión en caché del archivo.
+  const cacheBustingUrl = `${DATABASE_URL}?v=${new Date().getTime()}`;
+  const response = await fetch(cacheBustingUrl);
   if (!response.ok) {
     throw new Error('No se pudo cargar la base de datos.');
   }
