@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { ValidationStatus, CertificateData } from '../types';
 import { generatePdf } from '../services/pdfService';
@@ -37,7 +36,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ status, result }) =
         <div className="flex items-center">
           <ErrorIcon className="w-8 h-8 text-red-500 mr-4 flex-shrink-0" />
           <div>
-            <h3 className="text-lg font-bold text-red-800">Constancia no Encontrada</h3>
+            <h3 className="text-lg font-bold text-red-800">Documento no Encontrado</h3>
             <p className="text-red-700">El folio ingresado no fue encontrado en la base de datos. Por favor, verifique el folio e intente de nuevo.</p>
           </div>
         </div>
@@ -46,14 +45,36 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ status, result }) =
   }
   
   if (status === ValidationStatus.SUCCESS && result) {
+    const documentTypeRaw = getFlexibleProperty(result, ['tipo', 'Tipo de Documento']);
+    const documentType = documentTypeRaw ? String(documentTypeRaw).trim().toLowerCase() : '';
+
+    let validationTitleText = "Documento Válido";
+    if (documentType === 'constancia') {
+        validationTitleText = 'Constancia Válida';
+    } else if (documentType === 'reconocimiento') {
+        validationTitleText = 'Reconocimiento Válido';
+    }
+    
+    const formatDuration = (value: any): string => {
+        if (value === null || value === undefined) return 'N/A';
+        const valueStr = String(value).trim();
+        const upperValue = valueStr.toUpperCase();
+        if (upperValue.includes('HORAS')) {
+            return upperValue;
+        }
+        if (!isNaN(parseFloat(valueStr)) && valueStr !== '') {
+            return `${valueStr} HORAS`;
+        }
+        return upperValue;
+    };
+
     const displayData = {
       'Folio': getFlexibleProperty(result, ['Folio', 'ID']),
-      'Tipo de Documento': getFlexibleProperty(result, ['tipo', 'Tipo de Documento']),
       'Nombre del Titular': getFlexibleProperty(result, ['Nombre', 'Nombre del Titular']),
       'Nombre del curso-taller': getFlexibleProperty(result, ['Curso', 'Nombre del curso-taller']),
       'Fecha del curso-taller': formatDate(getFlexibleProperty(result, ['Fecha', 'Fecha del curso-taller'])),
       'Departamento': getFlexibleProperty(result, ['Departamento']),
-      'Duración': getFlexibleProperty(result, ['Duracion', 'Duración']),
+      'Duración': formatDuration(getFlexibleProperty(result, ['Duracion', 'Duración'])),
     };
 
     return (
@@ -62,7 +83,7 @@ const ValidationResult: React.FC<ValidationResultProps> = ({ status, result }) =
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="flex items-center">
                     <SuccessIcon className="w-8 h-8 text-green-500 mr-4 flex-shrink-0" />
-                    <h3 className="text-lg font-bold text-green-800">Constancia Válida</h3>
+                    <h3 className="text-lg font-bold text-green-800">{validationTitleText}</h3>
                 </div>
                 <button 
                     onClick={handleDownload} 

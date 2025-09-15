@@ -1,4 +1,3 @@
-
 import { CertificateData } from '../types';
 import { LOGO_URL } from '../constants';
 import { getFlexibleProperty, formatDate } from '../utils/helpers';
@@ -36,8 +35,14 @@ const getDisplayValue = (key: string, value: any): string => {
   let valueStr = String(value).trim();
   if (key === 'Fecha') return formatDate(value);
   if (key === 'Duración') {
-     if (!isNaN(parseFloat(valueStr)) && valueStr !== '') return `${valueStr} HORAS`;
-     return valueStr.toUpperCase();
+     const upperValue = valueStr.toUpperCase();
+     if (upperValue.includes('HORAS')) {
+        return upperValue;
+     }
+     if (!isNaN(parseFloat(valueStr)) && valueStr !== '') {
+        return `${valueStr} HORAS`;
+     }
+     return upperValue;
   }
   return valueStr.toUpperCase();
 };
@@ -61,12 +66,21 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
     doc.text("TECNOLÓGICO NACIONAL DE MÉXICO", 105, 20, { align: 'center' });
     doc.text("INSTITUTO TECNOLÓGICO DE DURANGO", 105, 27, { align: 'center' });
 
+    const documentTypeRaw = getFlexibleProperty(result, ['tipo', 'Tipo de Documento']);
+    const documentType = documentTypeRaw ? String(documentTypeRaw).trim().toLowerCase() : '';
+    
+    let titleText = 'Documento de Validez';
+    if (documentType === 'constancia') {
+        titleText = 'Constancia de Validez';
+    } else if (documentType === 'reconocimiento') {
+        titleText = 'Reconocimiento de Validez';
+    }
+
     doc.setFontSize(18);
-    doc.text("Constancia de Validez", 105, 45, { align: 'center' });
+    doc.text(titleText, 105, 45, { align: 'center' });
     
     const data = {
         'Folio': getFlexibleProperty(result, ['Folio', 'ID']),
-        'Tipo de Documento': getFlexibleProperty(result, ['tipo', 'Tipo de Documento']),
         'Nombre del Titular': getFlexibleProperty(result, ['Nombre', 'Nombre del Titular']),
         'Curso/Taller': getFlexibleProperty(result, ['Curso', 'Nombre del curso-taller']),
         'Fecha': getFlexibleProperty(result, ['Fecha', 'Fecha del curso-taller']),
@@ -108,5 +122,5 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
     doc.text("Contacto para dudas o aclaraciones: coord_actualizaciondocente@itdurango.edu.mx", 105, y, { align: 'center' });
 
     const folio = getFlexibleProperty(result, ['Folio', 'ID']) || 'Certificado';
-    doc.save(`Constancia-Validez-${folio}.pdf`);
+    doc.save(`Validacion-${folio}.pdf`);
 };
