@@ -25,7 +25,7 @@ const getImageDataFromURL = (url: string): Promise<{ dataURL: string; width: num
         reject(new Error('Could not get canvas context.'));
       }
     };
-    img.onerror = reject;
+    img.onerror = (err) => reject(err);
     img.src = url;
   });
 };
@@ -51,25 +51,30 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
+    // --- LOGO ---
+    // Se añade el logo en la parte superior del documento.
     try {
         const { dataURL, width, height } = await getImageDataFromURL(LOGO_URL);
         const aspectRatio = width / height;
-        const pdfImageHeight = 25;
+        const pdfImageHeight = 20; // Ajuste de tamaño para mejor estética
         const pdfImageWidth = pdfImageHeight * aspectRatio;
         doc.addImage(dataURL, 'JPEG', 15, 12, pdfImageWidth, pdfImageHeight);
     } catch (error) {
-        console.error("Could not add logo to PDF:", error);
+        console.error("No se pudo agregar el logo al PDF:", error);
     }
 
+    // --- ENCABEZADO DE TEXTO ---
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.text("TECNOLÓGICO NACIONAL DE MÉXICO", 105, 20, { align: 'center' });
     doc.text("INSTITUTO TECNOLÓGICO DE DURANGO", 105, 27, { align: 'center' });
 
-    const documentTypeRaw = getFlexibleProperty(result, ['tipo', 'Tipo de Documento']);
+    // --- TÍTULO DINÁMICO ---
+    // Se determina el título correcto basándose en la columna 'tipo'.
+    const documentTypeRaw = getFlexibleProperty(result, ['tipo', 'Tipo']);
     const documentType = documentTypeRaw ? String(documentTypeRaw).trim().toLowerCase() : '';
     
-    let titleText = 'Documento de Validez';
+    let titleText = 'Documento de Validez'; // Título por defecto
     if (documentType === 'constancia') {
         titleText = 'Constancia de Validez';
     } else if (documentType === 'reconocimiento') {
@@ -79,6 +84,7 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
     doc.setFontSize(18);
     doc.text(titleText, 105, 45, { align: 'center' });
     
+    // --- DATOS DEL DOCUMENTO ---
     const data = {
         'Folio': getFlexibleProperty(result, ['Folio', 'ID']),
         'Nombre del Titular': getFlexibleProperty(result, ['Nombre', 'Nombre del Titular']),
@@ -106,6 +112,7 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
 
     y += 5;
 
+    // --- PIE DE PÁGINA ---
     doc.setLineWidth(0.2);
     doc.line(20, y, 190, y);
     y += 10;
@@ -115,7 +122,7 @@ export const generatePdf = async (result: CertificateData): Promise<void> => {
     doc.text("Este documento es una representación digital para la verificación de la constancia.", 105, y, { align: 'center' });
     y += 5;
     const now = new Date();
-    const generatedDate = now.toLocaleDateString('es-ES', { day: 'numeric', month: 'numeric', year: 'numeric' });
+    const generatedDate = now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
     const generatedTime = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     doc.text(`Generado el: ${generatedDate}, ${generatedTime}`, 105, y, { align: 'center' });
     y += 5;
