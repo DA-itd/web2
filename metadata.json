@@ -1,6 +1,5 @@
-
 {
-  "name": "Certificate Validator",
-  "description": "An intelligent tool to upload an Excel database of certificates and quickly validate them by searching for a specific 'folio' or ID. Provides detailed feedback and AI-powered assistance for troubleshooting file parsing issues.",
+  "name": "Validador de Constancias ITD",
+  "description": "Una aplicación web para verificar la validez de las constancias y reconocimientos emitidos por el Instituto Tecnológico de Durango (ITD) buscando por folio en una base de datos.",
   "requestFramePermissions": []
 }
