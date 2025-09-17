@@ -22,7 +22,7 @@
       @keyframes spin { to { transform: rotate(360deg); } }
       .animate-spin { animation: spin 1s linear infinite; }
     </style>
-  <link rel="stylesheet" href="/index.css">
+<link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
@@ -141,7 +141,7 @@
           try {
               const { dataURL, width, height } = await getImageDataFromURL(LOGO_URL);
               const aspectRatio = width / height;
-              const pdfImageHeight = 20;
+              const pdfImageHeight = 30;
               const pdfImageWidth = pdfImageHeight * aspectRatio;
               doc.addImage(dataURL, 'JPEG', 15, 12, pdfImageWidth, pdfImageHeight);
           } catch (error) {
@@ -156,15 +156,15 @@
           const documentTypeRaw = getFlexibleProperty(result, ['tipo']);
           const documentType = documentTypeRaw ? String(documentTypeRaw).trim().toLowerCase() : '';
           
-          let titleText = 'Documento de Validez';
+          let titleText = 'Documento Válido';
           if (documentType === 'constancia') {
-              titleText = 'Constancia de Validez';
+              titleText = 'Constancia Válida';
           } else if (documentType === 'reconocimiento') {
-              titleText = 'Reconocimiento de Validez';
+              titleText = 'Reconocimiento Válido';
           }
 
           doc.setFontSize(18);
-          doc.text(titleText, 105, 45, { align: 'center' });
+          doc.text(titleText, 105, 50, { align: 'center' });
           
           const data = {
               'Folio': getFlexibleProperty(result, ['Folio', 'ID']),
@@ -175,7 +175,7 @@
               'Duración': getFlexibleProperty(result, ['Duracion', 'Duración']),
           };
           
-          let y = 65;
+          let y = 70;
           doc.setFontSize(11);
           const labelX = 20;
           const valueX = 70;
@@ -502,7 +502,6 @@
             setValidationResult(null);
             setValidationStatus(ValidationStatus.NOT_FOUND);
             playSound('beep-fail');
-            setTimeout(() => playSound('beep-fail'), 300);
           }
         }, [certificateData]);
 
