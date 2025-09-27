@@ -21,26 +21,26 @@
         }
       }
     </script>
-    
-    <!-- Babel Standalone for TSX/JSX transpilation -->
+
+    <!-- Babel Standalone for JSX transpilation -->
     <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 
-    <!-- 
-      NOTE: We are intentionally NOT loading React/ReactDOM via <script> tags anymore.
-      We will rely ONLY on the <script type="importmap"> that the environment
-      is automatically injecting to prevent version conflicts.
-    -->
+    <!-- React and ReactDOM from CDN (available as global variables) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- React Hot Toast from CDN (available as global 'toast' and 'Toaster') -->
+    <script src="https://unpkg.com/react-hot-toast@2.4.1/dist/react-hot-toast.js"></script>
 
+<link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-gray-100">
     
     <div id="root"></div>
     
-    <!-- 
-      The main script. Babel will transpile it, and the resulting Javascript
-      will use the 'import' statements that the environment's importmap will resolve.
-    -->
-    <script type="text/babel" data-presets="react,typescript" src="index.tsx?v=15"></script>
+    <!-- Load the single application bundle -->
+    <script type="text/babel" data-presets="react,typescript" src="bundle.js?v=16"></script>
     
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>
