@@ -1,5 +1,5 @@
 {
-  "name": "Validador de Constancias ITD",
-  "description": "Una aplicación web para verificar la validez de las constancias y reconocimientos emitidos por el Instituto Tecnológico de Durango (ITD) buscando por folio en una base de datos.",
+  "name": "Registro de Cursos para Docentes",
+  "description": "Una aplicación para que los docentes se registren en cursos de actualización. Autocompleta los datos del usuario, gestiona la selección de cursos y valida los conflictos de horarios.",
   "requestFramePermissions": []
 }
