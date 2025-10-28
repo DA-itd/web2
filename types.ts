@@ -1,24 +1,12 @@
+export const ValidationStatus = {
+  IDLE: 'idle',
+  SUCCESS: 'success',
+  NOT_FOUND: 'not_found',
+  ERROR: 'error',
+} as const;
 
-export interface Teacher {
-  id: number;
-  name: string;
-  curp?: string;
-  email?: string;
-  departmentId: number;
-}
+export type ValidationStatusType = typeof ValidationStatus[keyof typeof ValidationStatus];
 
-export interface Department {
-  id: number;
-  name:string;
-}
-
-export interface Course {
-  id: number;
-  name: string;
-  schedule: {
-    day: 'Lunes' | 'Martes' | 'Miércoles' | 'Jueves' | 'Viernes' | 'Sábado';
-    startTime: string; // "HH:mm"
-    endTime: string; // "HH:mm"
-    date: string; // "YYYY-MM-DD"
-  };
+export interface CertificateRecord {
+  [key: string]: string | number | null | undefined;
 }
