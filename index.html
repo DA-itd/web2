@@ -1,71 +1,45 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <!-- ==========================
-       🔵 METADATOS GENERALES
-  ========================== -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
-  <!-- ✅ TÍTULO INSTITUCIONAL -->
   <title>Validador de Constancias y Reconocimientos | Instituto Tecnológico de Durango</title>
   <meta name="description" content="Sistema oficial del Instituto Tecnológico de Durango para validación digital de constancias y reconocimientos emitidos por la Coordinación de Actualización Docente.">
   <meta name="keywords" content="ITD, Tecnológico de Durango, validación de constancias, reconocimientos, TecNM, documentos oficiales, versión 2.1">
   <meta name="author" content="Instituto Tecnológico de Durango">
 
-  <!-- ==========================
-       🌐 SEO - OpenGraph (Facebook, WhatsApp)
-  ========================== -->
   <meta property="og:title" content="Validador de Constancias - Instituto Tecnológico de Durango">
   <meta property="og:description" content="Verifica la autenticidad de constancias y reconocimientos emitidos por el Instituto Tecnológico de Durango.">
   <meta property="og:image" content="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg">
   <meta property="og:url" content="https://da-itd.github.io/web2/">
   <meta property="og:type" content="website">
 
-  <!-- ==========================
-       🐦 Twitter Cards
-  ========================== -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Validador de Constancias - ITD">
   <meta name="twitter:description" content="Sistema oficial de validación digital del Instituto Tecnológico de Durango.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg">
 
-  <!-- ==========================
-       📱 Progressive Web App (PWA)
-  ========================== -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#003366">
   <link rel="icon" href="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg" type="image/png">
 
-  <!-- ==========================
-       ⚡ Preconexión para carga rápida
-  ========================== -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://unpkg.com" crossorigin>
   <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
-  <!-- ==========================
-       🎨 Tailwind CSS
-  ========================== -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- ==========================
-       ⚛️ React & Babel (Producción)
-  ========================== -->
   <script defer src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script defer src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script defer src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- ==========================
-       📄 Librerías PDF y Excel
-  ========================== -->
+  
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- ==========================
-       🎛️ Estilos animaciones y loader
-  ========================== -->
+  <script defer src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+
   <style>
     @keyframes fade-in {
       0% { opacity: 0; transform: translateY(10px); }
@@ -91,25 +65,17 @@
   </style>
 </head>
 <body class="bg-slate-100">
-  <!-- ==========================
-       🔷 LOADER INSTITUCIONAL
-  ========================== -->
   <div id="loader-screen">
     <img src="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg" alt="Logotipo ITD" class="h-24 w-24 mb-4 animate-fade-in" />
     <p class="text-gray-700 font-semibold text-lg animate-fade-in">Cargando sistema de validación...</p>
     <div class="mt-4 h-8 w-8 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
   </div>
 
-  <!-- 🧠 Raíz de la aplicación React -->
   <div id="root" class="hidden"></div>
 
-  <!-- 🔊 Sonidos de éxito y error -->
   <audio id="beep-success" src="https://cdn.freesound.org/previews/270/270319_5123851-lq.mp3" preload="auto"></audio>
   <audio id="beep-fail" src="https://cdn.freesound.org/previews/235/235927_4102603-lq.mp3" preload="auto"></audio>
 
-  <!-- ==========================
-       🚀 REGISTRO DE SERVICE WORKER PWA
-  ========================== -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
@@ -120,9 +86,6 @@
     }
   </script>
 
-  <!-- ==========================
-       ⚛️ INICIO DE LA APLICACIÓN (React + PDF + Lógica)
-  ========================== -->
   <script type="text/babel">
   // ============================= //
 // 🔷 CONFIGURACIONES PRINCIPALES
@@ -256,11 +219,10 @@ const generatePdf = async (record) => {
 
     // Logo ITD al centro
     try {
-      const response = await fetch(logoUrl, { mode: "cors" });
-      const blob = await response.blob();
-      const logoDataURL = await blobToDataURL(blob);
+      // Usamos la función reutilizable que ya maneja CORS
+      const logoData = await getImageDataFromURL(logoUrl);
       const img = new Image();
-      img.src = logoDataURL;
+      img.src = logoData.dataURL;
       await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
       const logoSize = innerR * 1.5;
       ctx.drawImage(img, center - logoSize/2, center - logoSize/2, logoSize, logoSize);
@@ -269,17 +231,39 @@ const generatePdf = async (record) => {
     return c.toDataURL("image/png");
   };
 
-  // Generar QR dinámico
-  const generateQrDataURL = async (url, size = 300) => {
+  
+  // ========================================================
+  // ✅ CORRECCIÓN 2: FUNCIÓN generateQrDataURL MODIFICADA
+  // Se reemplaza 'fetch' por 'new Image()' para evitar CORS
+  // ========================================================
+  const generateQrDataURL = (url, size = 300) => new Promise((resolve) => {
     try {
       const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=${size}x${size}&chld=L|1&chl=${encodeURIComponent(url)}`;
-      const resp = await fetch(qrUrl);
-      const blob = await resp.blob();
-      return await blobToDataURL(blob);
+      const img = new Image();
+      img.crossOrigin = 'Anonymous'; // Importante para CORS
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null); // Fallar silenciosamente
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      
+      img.onerror = () => resolve(null); // Fallar silenciosamente
+      
+      img.src = qrUrl;
+      
     } catch {
-      return null;
+      resolve(null); // Fallar silenciosamente
     }
-  };
+  });
+
 
   // --- CREACIÓN DEL PDF --- //
   const doc = new jsPDF({ unit: "mm", format: "letter" });
@@ -534,11 +518,18 @@ const App = () => {
       try {
         setError(null);
         setLoading(true);
+        // Hacemos que la URL sea única para evitar caché
         const url = DATABASE_URL + '?v=' + Date.now();
         const res = await fetch(url);
         if (!res.ok) throw new Error('Error al cargar la base de datos');
 
         const arr = new Uint8Array(await res.arrayBuffer());
+        
+        // Verificamos que XLSX esté cargado antes de usarlo
+        if (!window.XLSX) {
+          throw new Error('La librería XLSX no se cargó correctamente.');
+        }
+
         const wb = XLSX.read(arr, { type: "array" });
 
         let all = [];
