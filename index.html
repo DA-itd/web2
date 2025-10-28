@@ -32,7 +32,21 @@
 </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx?v=2.2"></script>
+    <script type="module" src="/index.tsx?v=2.3"></script>
+
+    <!-- Script para registrar el limpiador de Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        // Registramos un nuevo service worker que anulará el registro de todos los antiguos.
+        // Esta es una forma robusta de solucionar problemas de caché persistentes.
+        navigator.serviceWorker.register('/sw-unregister.js')
+          .then(registration => {
+            console.log('Limpiador de Service Worker registrado:', registration.scope);
+          }).catch(error => {
+            console.error('Fallo al registrar el limpiador de Service Worker:', error);
+          });
+      }
+    </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
