@@ -36,10 +36,35 @@ export const formatDate = (dateValue: any): string => {
     return date.toLocaleDateString('es-ES',{ day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
 };
 
-export const playSound = (id: string) => {
-    const sound = document.getElementById(id) as HTMLAudioElement;
-    if (sound) {
-        sound.currentTime = 0;
-        sound.play().catch(error => console.error(`Error playing sound: ${id}`, error));
+// Store audio objects in a cache to avoid re-creating them.
+const audioCache: { [key: string]: HTMLAudioElement } = {};
+
+// URLs for the sounds, mapped by the ID we use to call them.
+const SOUND_URLS = {
+  'beep-success': 'https://github.com/google-gemini/cookbook/raw/main/examples/web/data/success.mp3',
+  'beep-fail': 'https://github.com/google-gemini/cookbook/raw/main/examples/web/data/error.mp3',
+};
+
+/**
+ * Plays a sound by creating (and caching) an Audio object programmatically.
+ * This is more reliable than relying on <audio> tags in the HTML.
+ * @param id The ID of the sound to play ('beep-success' or 'beep-fail').
+ */
+export const playSound = (id: 'beep-success' | 'beep-fail') => {
+    let sound = audioCache[id];
+    if (!sound) {
+        const url = SOUND_URLS[id];
+        if (!url) {
+            console.error(`Sound URL not found for id: ${id}`);
+            return;
+        }
+        sound = new Audio(url);
+        audioCache[id] = sound;
     }
+
+    sound.currentTime = 0;
+    sound.play().catch(error => {
+        // Log the error but don't crash the app. The sound is non-critical.
+        console.error(`Error playing sound: ${id}`, error);
+    });
 };
