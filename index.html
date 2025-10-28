@@ -1,20 +1,606 @@
-<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Validador de Constancias y Reconocimientos del ITD</title><link rel="icon" type="image/png" href="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg"/><link rel="preconnect" href="https://cdn.jsdelivr.net"/><link rel="preconnect" href="https://unpkg.com"/><link rel="preconnect" href="https://cdnjs.cloudflare.com"/><script defer src="https://cdn.tailwindcss.com"></script><script defer src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script><script defer src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script><script defer src="https://unpkg.com/@babel/standalone/babel.min.js"></script><script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script><script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script><style>@keyframes fade-in{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:translateY(0)}}.animate-fade-in{animation:fade-in .5s ease-out forwards}@keyframes spin{to{transform:rotate(360deg)}}.animate-spin{animation:spin 1s linear infinite}</style></head><body class="bg-slate-100"><div id="root"></div><audio id="beep-success" src="https://cdn.freesound.org/previews/270/270319_5123851-lq.mp3" preload="auto"></audio><audio id="beep-fail" src="https://cdn.freesound.org/previews/235/235927_4102603-lq.mp3" preload="auto"></audio><script type="text/babel">
-const LOGO_URL='https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg';
-const DATABASE_URL='https://api.allorigins.win/raw?url=https://raw.githubusercontent.com/DA-itd/web2/main/database.xlsx';
-const POTENTIAL_FOLIO_HEADERS=['folio','id','clave','constancia','folio de constancia','folio constancia','no. folio','número de folio','num folio','folio certificado'];
-const ValidationStatus={IDLE:'idle',SUCCESS:'success',NOT_FOUND:'not_found',ERROR:'error'};
-const getProperty=(obj,key)=>{if(!obj||typeof obj!=='object'||!key)return;const found=Object.keys(obj).find(k=>k.trim().toLowerCase()===key.toLowerCase());return found?obj[found]:undefined};
-const getFlexibleProperty=(obj,keys)=>{for(const key of keys){const val=getProperty(obj,key);if(val!==undefined&&val!==null)return val}};
-const formatDate=v=>{if(v==null)return'N/A';if(typeof v==='string'){if(!isNaN(v)&&!isNaN(parseFloat(v))){let d=new Date((parseFloat(v)-25569)*86400*1000);d=new Date(d.valueOf()+d.getTimezoneOffset()*6e4);return isNaN(d.getTime())?String(v):d.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).toUpperCase()}return v.toUpperCase()}let d=typeof v==='number'?new Date((v-25569)*86400*1000):new Date(v);if(!d||isNaN(d.getTime()))return String(v).toUpperCase();return d.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).toUpperCase()};
-const playSound=id=>{const s=document.getElementById(id);if(s){s.currentTime=0;s.play().catch(e=>console.error('Sound',e))}};
-const getImageDataFromURL=u=>new Promise((res,rej)=>{const i=new Image();i.crossOrigin='Anonymous';i.onload=()=>{const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const ctx=c.getContext('2d');ctx?(ctx.drawImage(i,0,0),res({dataURL:c.toDataURL('image/jpeg'),width:i.width,height:i.height})):rej('ctx')};i.onerror=e=>rej(e);i.src=u});
-const getPdfDisplayValue=(k,v)=>{if(v==null)return'N/A';let s=String(v).trim();if(k==='Fecha')return formatDate(v);if(k==='Duración'){const u=s.toUpperCase();if(u.includes('HORAS'))return u;if(!isNaN(parseFloat(s))&&s!=='')return s+' HORAS';return u}return s.toUpperCase()};
-const generatePdf=async(r)=>{const{jsPDF}=window.jspdf;const doc=new jsPDF();try{const{dataURL}=await getImageDataFromURL(LOGO_URL);doc.addImage(dataURL,'JPEG',15,12,45,30)}catch{}doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('TECNOLÓGICO NACIONAL DE MÉXICO',105,20,{align:'center'});doc.text('INSTITUTO TECNOLÓGICO DE DURANGO',105,27,{align:'center'});const t=getFlexibleProperty(r,['tipo']);let title='Documento Válido';if(t){const low=t.toString().toLowerCase();if(low==='constancia')title='Constancia Válida';if(low==='reconocimiento')title='Reconocimiento Válido'}doc.setFontSize(18);doc.text(title,105,50,{align:'center'});const data={'Folio':getFlexibleProperty(r,['Folio','ID']),'Nombre del Titular':getFlexibleProperty(r,['Nombre','Nombre del Titular']),'Curso/Taller':getFlexibleProperty(r,['Curso','Nombre del curso-taller']),'Fecha':getFlexibleProperty(r,['Fecha','Fecha del curso-taller']),'Departamento':getFlexibleProperty(r,['Departamento']),'Duración':getFlexibleProperty(r,['Duracion','Duración'])};let y=70;for(const[k,v]of Object.entries(data)){if(!v)continue;doc.setFont('helvetica','bold');doc.text(k+':',20,y);doc.setFont('helvetica','normal');const lines=doc.splitTextToSize(getPdfDisplayValue(k,v),120);doc.text(lines,70,y);y+=lines.length*7+5}doc.line(20,y,190,y);y+=10;doc.setFontSize(9);doc.setTextColor(150,150,150);doc.text('Este documento es una representación digital para la verificación de la constancia.',105,y,{align:'center'});y+=5;const now=new Date();doc.text(`Generado el: ${now.toLocaleDateString('es-ES',{day:'numeric',month:'long',year:'numeric'})}, ${now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`,105,y,{align:'center'});y+=5;doc.text('Contacto: coord_actualizaciondocente@itdurango.edu.mx',105,y,{align:'center'});doc.save('Validacion-'+(getFlexibleProperty(r,['Folio','ID'])||'Constancia')+'.pdf')};
-const loadDatabase=async()=>{const url=DATABASE_URL+'?v='+Date.now();const res=await fetch(url);if(!res.ok)throw new Error('Error al cargar base de datos');const arr=new Uint8Array(await res.arrayBuffer()),wb=XLSX.read(arr,{type:'array'});let all=[];wb.SheetNames.forEach(sn=>{const ws=wb.Sheets[sn];if(!ws||!ws['!ref'])return;const aoa=XLSX.utils.sheet_to_json(ws,{header:1,blankrows:false});if(aoa.length===0)return;let header=-1;for(let i=0;i<aoa.length;i++){if(aoa[i].some(c=>POTENTIAL_FOLIO_HEADERS.includes(String(c||'').trim().toLowerCase()))){header=i;break}}if(header===-1)return;const headers=aoa[header].map(h=>String(h||'').trim());const rows=aoa.slice(header+1).filter(r=>r.some(c=>String(c||'').trim()!=='')).map(r=>{const obj={};headers.forEach((h,i)=>{if(h&&i<r.length)obj[h]=r[i]});return obj});all=all.concat(rows)});return all};
-const Header=()=>React.createElement('header',{className:'bg-white shadow-sm w-full'},React.createElement('div',{className:'container mx-auto px-6 py-4 flex items-center'},React.createElement('img',{src:LOGO_URL,alt:'Logo',className:'h-10 mr-4'}),React.createElement('h1',{className:'text-lg sm:text-xl font-bold text-gray-800'},'Validador de Constancias y Reconocimientos del ITD')));
-const Footer=()=>React.createElement('footer',{className:'w-full mt-auto py-6 text-center text-xs text-gray-500 px-4'},React.createElement('p',null,`© ${new Date().getFullYear()} Validador de Constancias.`),React.createElement('p',null,'Desarrollo académico - Coordinación de Actualización Docente ITD'));
-const SearchForm=({query,setQuery,onSearch,onClear})=>React.createElement('div',{className:'bg-white p-6 sm:p-8 rounded-xl shadow-md w-full max-w-2xl mx-auto animate-fade-in'},React.createElement('h2',{className:'text-xl font-bold text-gray-800 mb-2'},'Buscar Constancia'),React.createElement('p',{className:'text-gray-600 mb-6'},'Ingrese el folio de la constancia para verificar su validez.'),React.createElement('form',{onSubmit:e=>{e.preventDefault();onSearch(query)},className:'flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4'},React.createElement('div',{className:'relative flex-grow w-full'},React.createElement('input',{type:'text',className:'w-full pl-3 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500',placeholder:'Ej: TNM-054-00-2025-123',value:query,onChange:e=>setQuery(e.target.value),autoFocus:true})),React.createElement('div',{className:'flex space-x-2 w-full sm:w-auto'},React.createElement('button',{type:'submit',className:'px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700'},'Verificar'),React.createElement('button',{type:'button',onClick:onClear,className:'px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300'},'Borrar'))));
-const ValidationResult=({status,result})=>{const[g,setG]=React.useState(false);const handle=async()=>{if(!result)return;setG(true);try{await generatePdf(result)}catch(e){alert('Error generando PDF')}finally{setG(false)}};if(status===ValidationStatus.IDLE)return null;if(status===ValidationStatus.NOT_FOUND)return React.createElement('div',{className:'w-full max-w-2xl mx-auto mt-8 p-6 bg-red-50 border-l-4 border-red-500 rounded-r-lg shadow animate-fade-in'},React.createElement('h3',{className:'text-lg font-bold text-red-800 mb-1'},'Documento no encontrado'),React.createElement('p',{className:'text-red-700'},'El folio ingresado no fue encontrado en la base de datos.'));if(status===ValidationStatus.SUCCESS&&result){const tipo=getFlexibleProperty(result,['tipo']);let titulo='Documento Válido';if(tipo){const t=String(tipo).toLowerCase();if(t==='constancia')titulo='Constancia Válida';if(t==='reconocimiento')titulo='Reconocimiento Válido'}const data={'Folio':getFlexibleProperty(result,['Folio','ID']),'Nombre del Titular':getFlexibleProperty(result,['Nombre','Nombre del Titular']),'Nombre del curso-taller':getFlexibleProperty(result,['Curso','Nombre del curso-taller']),'Fecha del curso-taller':formatDate(getFlexibleProperty(result,['Fecha','Fecha del curso-taller'])),'Departamento':getFlexibleProperty(result,['Departamento']),'Duración':getFlexibleProperty(result,['Duracion','Duración'])};return React.createElement('div',{className:'w-full max-w-2xl mx-auto mt-8 bg-green-50 border-l-4 border-green-500 rounded-r-lg shadow animate-fade-in'},React.createElement('div',{className:'p-6 flex flex-col sm:flex-row justify-between items-center gap-4'},React.createElement('h3',{className:'text-lg font-bold text-green-800'},titulo),React.createElement('button',{onClick:handle,disabled:g,className:'px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-400'},g?'Generando...':'Descargar PDF')),React.createElement('div',{className:'bg-white p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm rounded-b-lg border-t border-green-200'},Object.entries(data).map(([k,v])=>v&&React.createElement('div',{key:k},React.createElement('p',{className:'text-gray-500'},k),React.createElement('p',{className:'font-bold text-gray-800 break-words'},String(v).toUpperCase())))))}return null};
-const App=()=>{const{useState,useEffect,useCallback}=React;const[loading,setL]=useState(true),[error,setE]=useState(null),[data,setD]=useState([]),[q,setQ]=useState(''),[status,setS]=useState(ValidationStatus.IDLE),[result,setR]=useState(null);useEffect(()=>{(async()=>{try{setE(null);setL(true);setD(await loadDatabase())}catch(e){setE(e.message)}finally{setL(false)}})()},[]);const search=useCallback(x=>{if(!x||data.length===0){setS(ValidationStatus.IDLE);setR(null);return}const clean=x.trim().toLowerCase();const res=data.find(r=>{const fol=getFlexibleProperty(r,POTENTIAL_FOLIO_HEADERS);return fol&&String(fol).trim().toLowerCase()===clean});if(res){setR(res);setS(ValidationStatus.SUCCESS);playSound('beep-success')}else{setR(null);setS(ValidationStatus.NOT_FOUND);playSound('beep-fail')}},[data]);const clear=()=>{setQ('');setS(ValidationStatus.IDLE);setR(null)};return React.createElement('div',{className:'min-h-screen flex flex-col items-center'},React.createElement(Header),React.createElement('main',{className:'flex-grow container mx-auto p-4 sm:p-6 w-full flex flex-col items-center'},loading?React.createElement('p',{className:'text-gray-600'},'Cargando base de datos...'):error?React.createElement('p',{className:'text-red-600'},error):React.createElement(React.Fragment,null,React.createElement(SearchForm,{query:q,setQuery:setQ,onSearch:search,onClear:clear}),React.createElement(ValidationResult,{status:status,result:result}))),React.createElement(Footer))};
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
-</script></body></html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!-- ==========================
+       🔵 METADATOS GENERALES
+  ========================== -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+  <!-- ✅ TÍTULO INSTITUCIONAL -->
+  <title>Validador de Constancias y Reconocimientos | Instituto Tecnológico de Durango</title>
+  <meta name="description" content="Sistema oficial del Instituto Tecnológico de Durango para validación digital de constancias y reconocimientos emitidos por la Coordinación de Actualización Docente.">
+  <meta name="keywords" content="ITD, Tecnológico de Durango, validación de constancias, reconocimientos, TecNM, documentos oficiales, versión 2.1">
+  <meta name="author" content="Instituto Tecnológico de Durango">
+
+  <!-- ==========================
+       🌐 SEO - OpenGraph (Facebook, WhatsApp)
+  ========================== -->
+  <meta property="og:title" content="Validador de Constancias - Instituto Tecnológico de Durango">
+  <meta property="og:description" content="Verifica la autenticidad de constancias y reconocimientos emitidos por el Instituto Tecnológico de Durango.">
+  <meta property="og:image" content="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg">
+  <meta property="og:url" content="https://da-itd.github.io/web2/">
+  <meta property="og:type" content="website">
+
+  <!-- ==========================
+       🐦 Twitter Cards
+  ========================== -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Validador de Constancias - ITD">
+  <meta name="twitter:description" content="Sistema oficial de validación digital del Instituto Tecnológico de Durango.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg">
+
+  <!-- ==========================
+       📱 Progressive Web App (PWA)
+  ========================== -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#003366">
+  <link rel="icon" href="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg" type="image/png">
+
+  <!-- ==========================
+       ⚡ Preconexión para carga rápida
+  ========================== -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
+  <!-- ==========================
+       🎨 Tailwind CSS
+  ========================== -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- ==========================
+       ⚛️ React & Babel (Producción)
+  ========================== -->
+  <script defer src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script defer src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script defer src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- ==========================
+       📄 Librerías PDF y Excel
+  ========================== -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- ==========================
+       🎛️ Estilos animaciones y loader
+  ========================== -->
+  <style>
+    @keyframes fade-in {
+      0% { opacity: 0; transform: translateY(10px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.5s ease-out forwards;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin { animation: spin 1s linear infinite; }
+
+    /* Loader de pantalla completa */
+    #loader-screen {
+      position: fixed;
+      inset: 0;
+      background-color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body class="bg-slate-100">
+  <!-- ==========================
+       🔷 LOADER INSTITUCIONAL
+  ========================== -->
+  <div id="loader-screen">
+    <img src="https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg" alt="Logotipo ITD" class="h-24 w-24 mb-4 animate-fade-in" />
+    <p class="text-gray-700 font-semibold text-lg animate-fade-in">Cargando sistema de validación...</p>
+    <div class="mt-4 h-8 w-8 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+  </div>
+
+  <!-- 🧠 Raíz de la aplicación React -->
+  <div id="root" class="hidden"></div>
+
+  <!-- 🔊 Sonidos de éxito y error -->
+  <audio id="beep-success" src="https://cdn.freesound.org/previews/270/270319_5123851-lq.mp3" preload="auto"></audio>
+  <audio id="beep-fail" src="https://cdn.freesound.org/previews/235/235927_4102603-lq.mp3" preload="auto"></audio>
+
+  <!-- ==========================
+       🚀 REGISTRO DE SERVICE WORKER PWA
+  ========================== -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("service-worker.js")
+          .then(reg => console.log("✅ Service Worker registrado:", reg.scope))
+          .catch(err => console.warn("⚠️ Error al registrar Service Worker:", err));
+      });
+    }
+  </script>
+
+  <!-- ==========================
+       ⚛️ INICIO DE LA APLICACIÓN (React + PDF + Lógica)
+  ========================== -->
+  <script type="text/babel">
+  // ============================= //
+// 🔷 CONFIGURACIONES PRINCIPALES
+// ============================= //
+const LOGO_URL = 'https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg';
+const BASE_URL = 'https://da-itd.github.io/web2/';
+const VERSION = '2.1';
+const DATABASE_URL = 'https://api.allorigins.win/raw?url=https://raw.githubusercontent.com/DA-itd/web2/main/database.xlsx';
+
+// Campos posibles de folio
+const POTENTIAL_FOLIO_HEADERS = [
+  'folio','id','clave','constancia','folio de constancia',
+  'folio constancia','no. folio','número de folio','num folio','folio certificado'
+];
+
+// Estados de validación
+const ValidationStatus = {
+  IDLE: 'idle',
+  SUCCESS: 'success',
+  NOT_FOUND: 'not_found',
+  ERROR: 'error'
+};
+
+// ============================= //
+// 🔧 FUNCIONES UTILITARIAS
+// ============================= //
+const getProperty = (obj, key) => {
+  if (!obj || typeof obj !== 'object' || !key) return;
+  const found = Object.keys(obj).find(k => k.trim().toLowerCase() === key.toLowerCase());
+  return found ? obj[found] : undefined;
+};
+
+const getFlexibleProperty = (obj, keys) => {
+  for (const key of keys) {
+    const val = getProperty(obj, key);
+    if (val !== undefined && val !== null) return val;
+  }
+};
+
+const formatDate = value => {
+  if (value == null) return 'N/A';
+  if (typeof value === 'string') {
+    if (!isNaN(value) && !isNaN(parseFloat(value))) {
+      let d = new Date((parseFloat(value) - 25569) * 86400 * 1000);
+      d = new Date(d.valueOf() + d.getTimezoneOffset() * 60000);
+      return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('es-ES', { 
+        day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
+    }
+    return value.toUpperCase();
+  }
+  let d = typeof value === 'number' ? new Date((value - 25569) * 86400 * 1000) : new Date(value);
+  if (!d || isNaN(d.getTime())) return String(value).toUpperCase();
+  return d.toLocaleDateString('es-ES', { 
+    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).toUpperCase();
+};
+
+const playSound = id => {
+  const s = document.getElementById(id);
+  if (s) { s.currentTime = 0; s.play().catch(e=>{}); }
+};
+
+const getImageDataFromURL = (url) => new Promise((resolve, reject) => {
+  const img = new Image();
+  img.crossOrigin = 'Anonymous';
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) reject('Context not available');
+    ctx.drawImage(img, 0, 0);
+    resolve({ dataURL: canvas.toDataURL('image/jpeg'), width: img.width, height: img.height });
+  };
+  img.onerror = e => reject(e);
+  img.src = url;
+});
+
+// ========================================== //
+// 🛡️ Generación PDF INSTITUCIONAL (QR + Sello)
+// ========================================== //
+const generatePdf = async (record) => {
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) throw new Error('jsPDF no disponible');
+
+  // --- UTILIDADES INTERNAS --- //
+  const blobToDataURL = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
+  // Crear sello digital transparente
+  const createSealDataURL = async (logoUrl, size = 800) => {
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    const ctx = c.getContext("2d");
+    ctx.clearRect(0, 0, size, size);
+
+    const center = size / 2;
+    const outerR = size * 0.45;
+    const innerR = size * 0.30;
+    ctx.strokeStyle = "#7b2d2d";
+    ctx.lineWidth = size * 0.02;
+
+    ctx.beginPath(); ctx.arc(center, center, outerR, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(center, center, innerR, 0, Math.PI * 2); ctx.stroke();
+
+    ctx.fillStyle = "#7b2d2d";
+    ctx.font = `${size * 0.04}px Helvetica`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    const drawCircularText = (text, radius, startAngle, alignTop) => {
+      const chars = text.split("");
+      const angleStep = (Math.PI * 2) / (chars.length * 1.3);
+      let angle = startAngle;
+      chars.forEach(char => {
+        ctx.save();
+        ctx.translate(center + Math.cos(angle) * radius, center + Math.sin(angle) * radius);
+        ctx.rotate(angle + (alignTop ? Math.PI / 2 : -Math.PI / 2));
+        ctx.fillText(char, 0, 0);
+        ctx.restore();
+        angle += alignTop ? angleStep : -angleStep;
+      });
+    };
+
+    drawCircularText("VALIDADO DIGITALMENTE", outerR - size * 0.08, -Math.PI / 2, true);
+    drawCircularText("INSTITUTO TECNOLÓGICO DE DURANGO", outerR - size * 0.08, Math.PI / 2, false);
+
+    // Logo ITD al centro
+    try {
+      const response = await fetch(logoUrl, { mode: "cors" });
+      const blob = await response.blob();
+      const logoDataURL = await blobToDataURL(blob);
+      const img = new Image();
+      img.src = logoDataURL;
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+      const logoSize = innerR * 1.5;
+      ctx.drawImage(img, center - logoSize/2, center - logoSize/2, logoSize, logoSize);
+    } catch {}
+
+    return c.toDataURL("image/png");
+  };
+
+  // Generar QR dinámico
+  const generateQrDataURL = async (url, size = 300) => {
+    try {
+      const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=${size}x${size}&chld=L|1&chl=${encodeURIComponent(url)}`;
+      const resp = await fetch(qrUrl);
+      const blob = await resp.blob();
+      return await blobToDataURL(blob);
+    } catch {
+      return null;
+    }
+  };
+
+  // --- CREACIÓN DEL PDF --- //
+  const doc = new jsPDF({ unit: "mm", format: "letter" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 15;
+  let y = 15;
+
+  // Encabezado con logo
+  try {
+    const logoData = await getImageDataFromURL(LOGO_URL);
+    const logoW = 55, logoH = logoW / (logoData.width / logoData.height);
+    doc.addImage(logoData.dataURL, "JPEG", (pageW - logoW)/2, y, logoW, logoH);
+    y += logoH + 6;
+  } catch {}
+
+  // Texto Institucional
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("TECNOLÓGICO NACIONAL DE MÉXICO", pageW/2, y, { align: "center" }); y+=6;
+  doc.text("INSTITUTO TECNOLÓGICO DE DURANGO", pageW/2, y, { align: "center" }); y+=6;
+  doc.setFontSize(10);
+  doc.text("SISTEMA DE VALIDACIÓN DIGITAL", pageW/2, y, { align: "center" }); y+=10;
+
+  // Título
+  const tipo = (getFlexibleProperty(record, ["tipo"]) || "DOCUMENTO").toString().toUpperCase();
+  doc.setFontSize(16);
+  doc.text(`${tipo} VÁLIDO`, pageW/2, y, { align: "center" });
+  y+=10;
+
+  doc.setDrawColor(120);
+  doc.line(margin, y, pageW - margin, y); y+=8;
+
+  // Datos
+  const data = {
+    "Folio": getFlexibleProperty(record, ["Folio","ID"]),
+    "Nombre del Titular": getFlexibleProperty(record, ["Nombre"]),
+    "Curso/Taller": getFlexibleProperty(record, ["Curso"]),
+    "Fecha": formatDate(getFlexibleProperty(record, ["Fecha"])),
+    "Departamento": getFlexibleProperty(record, ["Departamento"]),
+    "Duración": getFlexibleProperty(record, ["Duracion","Duración"])
+  };
+
+  const leftWidth = pageW - margin * 2 - 60;
+  for (const [label, value] of Object.entries(data)) {
+    if (!value) continue;
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text(label + ":", margin, y);
+    doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(String(value).toUpperCase(), leftWidth);
+    doc.text(lines, margin, y + 6);
+    y += lines.length * 6 + 6;
+  }
+
+  // Recursos: Sello + QR
+  const folio = data["Folio"];
+  const qrUrl = BASE_URL + "?folio=" + encodeURIComponent(folio);
+  const [sealUrl, qrImage] = await Promise.all([
+    createSealDataURL(LOGO_URL),
+    generateQrDataURL(qrUrl)
+  ]);
+
+  if (sealUrl) {
+    try {
+      doc.addImage(sealUrl, "PNG", (pageW-120)/2, 90, 120, 120, "", "FAST");
+    } catch {}
+  }
+
+  const qrSize = 40;
+  const qrX = pageW - margin - qrSize;
+  const qrY = doc.internal.pageSize.getHeight() - margin - qrSize - 15;
+  if (qrImage) {
+    doc.addImage(qrImage, "PNG", qrX, qrY, qrSize, qrSize);
+  }
+
+  const footerY = doc.internal.pageSize.getHeight() - margin;
+  doc.setFontSize(9);
+  doc.setTextColor(100);
+  doc.text("Este documento ha sido validado digitalmente.", margin, footerY - 6);
+  doc.text(`Generado automáticamente · Versión ${VERSION}`, margin, footerY);
+  doc.text(BASE_URL, pageW - margin, footerY, { align: "right" });
+
+  doc.save(`Validacion-${folio || "documento"}.pdf`);
+};
+
+// ============================================================== //
+// ⚛️ COMPONENTES REACT (Header, Footer, Formulario, Resultados)
+// ============================================================== //
+const Header = () => (
+  <header className="bg-white shadow-sm w-full">
+    <div className="container mx-auto px-6 py-4 flex items-center">
+      <img src={LOGO_URL} alt="Logo" className="h-10 mr-4" />
+      <div>
+        <h1 className="text-lg sm:text-xl font-bold text-gray-800">Validador de Constancias y Reconocimientos del ITD · Versión {VERSION}</h1>
+      </div>
+    </div>
+  </header>
+);
+
+const Footer = () => (
+  <footer className="w-full mt-auto py-6 text-center text-xs text-gray-500 px-4">
+    <p>© {new Date().getFullYear()} Validador de Constancias. Todos los derechos reservados.</p>
+    <p>Desarrollo Académico – Coordinación de Actualización Docente ITD</p>
+  </footer>
+);
+// ============================= //
+// 🔍 Formulario de búsqueda
+// ============================= //
+const SearchForm = ({ query, setQuery, onSearch, onClear }) => (
+  <div className="bg-white p-6 sm:p-8 rounded-xl shadow-md w-full max-w-2xl mx-auto animate-fade-in">
+    <h2 className="text-xl font-bold text-gray-800 mb-2">Buscar Constancia</h2>
+    <p className="text-gray-600 mb-6">Ingrese el folio de la constancia para verificar su validez.</p>
+    <form
+      onSubmit={e => { e.preventDefault(); onSearch(query); }}
+      className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4"
+    >
+      <div className="relative flex-grow w-full">
+        <input
+          type="text"
+          className="w-full pl-3 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+          placeholder="Ejemplo: TNM-054-00-2025-123"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <div className="flex space-x-2 w-full sm:w-auto">
+        <button type="submit" className="px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700">
+          Verificar
+        </button>
+        <button type="button" onClick={onClear} className="px-6 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300">
+          Borrar
+        </button>
+      </div>
+    </form>
+  </div>
+);
+
+// ============================= //
+// 📄 Resultado de Validación
+// ============================= //
+const ValidationResult = ({ status, result }) => {
+  const [generating, setGenerating] = React.useState(false);
+
+  const handleGenerate = async () => {
+    if (!result) return;
+    setGenerating(true);
+    try { await generatePdf(result); }
+    catch { alert('Error al generar PDF'); }
+    finally { setGenerating(false); }
+  };
+
+  if (status === ValidationStatus.IDLE) return null;
+  if (status === ValidationStatus.NOT_FOUND)
+    return (
+      <div className="w-full max-w-2xl mx-auto mt-8 p-6 bg-red-50 border-l-4 border-red-500 rounded-r-lg shadow animate-fade-in">
+        <h3 className="text-lg font-bold text-red-800 mb-1">Documento no encontrado</h3>
+        <p className="text-red-700">El folio ingresado no fue encontrado.</p>
+      </div>
+    );
+
+  if (status === ValidationStatus.SUCCESS && result) {
+    const tipo = getFlexibleProperty(result, ["tipo"]) || "DOCUMENTO";
+    const titulo = (tipo.toString().toLowerCase() === "constancia") ? "Constancia Válida" :
+                   (tipo.toString().toLowerCase() === "reconocimiento") ? "Reconocimiento Válido" : "Documento Válido";
+
+    const data = {
+      "Folio": getFlexibleProperty(result, ["Folio","ID"]),
+      "Nombre del Titular": getFlexibleProperty(result, ["Nombre"]),
+      "Curso/Taller": getFlexibleProperty(result, ["Curso"]),
+      "Fecha": formatDate(getFlexibleProperty(result, ["Fecha"])),
+      "Departamento": getFlexibleProperty(result, ["Departamento"]),
+      "Duración": getFlexibleProperty(result, ["Duracion","Duración"])
+    };
+
+    return (
+      <div className="w-full max-w-2xl mx-auto mt-8 bg-green-50 border-l-4 border-green-500 rounded-r-lg shadow animate-fade-in">
+        <div className="p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <h3 className="text-lg font-bold text-green-800">{titulo}</h3>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:bg-blue-400"
+          >
+            {generating ? 'Generando...' : 'Descargar PDF'}
+          </button>
+        </div>
+        <div className="bg-white p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm rounded-b-lg border-t border-green-200">
+          {Object.entries(data).map(([k, v]) => v && (
+            <div key={k}>
+              <p className="text-gray-500">{k}</p>
+              <p className="font-bold text-gray-800 break-words">{String(v).toUpperCase()}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
+// ============================= //
+// 📲 Botón de instalación PWA
+// ============================= //
+const InstallPWAButton = () => {
+  const [deferredPrompt, setDeferredPrompt] = React.useState(null);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setVisible(true);
+    });
+  }, []);
+
+  const handleInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        console.log('✅ Aplicación instalada');
+      }
+      setDeferredPrompt(null);
+      setVisible(false);
+    }
+  };
+
+  if (!visible) return null;
+  return (
+    <div className="fixed bottom-4 right-4 bg-blue-600 text-white rounded-full shadow-lg px-4 py-3 cursor-pointer hover:bg-blue-700"
+         onClick={handleInstall}>
+      📲 Instalar Aplicación
+    </div>
+  );
+};
+
+// ============================= //
+// ⚛️ Aplicación Principal
+// ============================= //
+const App = () => {
+  const { useState, useEffect, useCallback } = React;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState([]);
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState(ValidationStatus.IDLE);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setError(null);
+        setLoading(true);
+        const url = DATABASE_URL + '?v=' + Date.now();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Error al cargar la base de datos');
+
+        const arr = new Uint8Array(await res.arrayBuffer());
+        const wb = XLSX.read(arr, { type: "array" });
+
+        let all = [];
+        wb.SheetNames.forEach(sn => {
+          const ws = wb.Sheets[sn];
+          const aoa = XLSX.utils.sheet_to_json(ws, { header:1, blankrows:false });
+          let headerIdx = aoa.findIndex(row => row.some(c => POTENTIAL_FOLIO_HEADERS.includes(String(c || '').trim().toLowerCase())));
+          if (headerIdx === -1) return;
+          const headers = aoa[headerIdx].map(h => String(h || '').trim());
+          const rows = aoa.slice(headerIdx + 1).filter(r => r.some(c => String(c || '').trim() !== '')).map(r => {
+            const obj = {}; headers.forEach((h, i) => { if (h && i < r.length) obj[h] = r[i]; });
+            return obj;
+          });
+          all = all.concat(rows);
+        });
+
+        setData(all);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+        document.getElementById('loader-screen').style.display = 'none';
+        document.getElementById('root').classList.remove('hidden');
+      }
+    })();
+  }, []);
+
+  const search = useCallback(x => {
+    if (!x || data.length === 0) { setStatus(ValidationStatus.IDLE); return; }
+    const clean = x.trim().toLowerCase();
+    const res = data.find(r => {
+      const fol = getFlexibleProperty(r, POTENTIAL_FOLIO_HEADERS);
+      return fol && String(fol).trim().toLowerCase() === clean;
+    });
+    if (res) { setResult(res); setStatus(ValidationStatus.SUCCESS); playSound('beep-success'); }
+    else { setResult(null); setStatus(ValidationStatus.NOT_FOUND); playSound('beep-fail'); }
+  }, [data]);
+
+  const clear = () => { setQuery(''); setStatus(ValidationStatus.IDLE); setResult(null); };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center">
+      <Header />
+      <main className="flex-grow container mx-auto p-4 sm:p-6 w-full flex flex-col items-center">
+        {loading ? <p className="text-gray-600">Cargando base de datos...</p> :
+         error ? <p className="text-red-600">{error}</p> :
+         <>
+           <SearchForm query={query} setQuery={setQuery} onSearch={search} onClear={clear} />
+           <ValidationResult status={status} result={result} />
+         </>
+        }
+      </main>
+      <Footer />
+      <InstallPWAButton />
+    </div>
+  );
+};
+
+// ============================= //
+// 🚀 Renderizar la App
+// ============================= //
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
