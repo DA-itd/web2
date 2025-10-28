@@ -1,10 +1,13 @@
 import React from 'react';
 
 const Footer = () => (
-  <footer className="w-full mt-auto py-6 text-center text-xs text-gray-500 px-4">
-    <p>© {new Date().getFullYear()} Validador de Constancias. Todos los derechos reservados.</p>
-    <p>Desarrollo académico, coordinación de actualización docente del ITD.</p>
-    <p className="mt-2 text-gray-400">Ver 2.3</p>
+  <footer className="w-full bg-white shadow-sm mt-auto">
+    <div className="container mx-auto px-6 py-4 text-center text-gray-600 text-sm">
+      <p>&copy; {new Date().getFullYear()} Instituto Tecnológico de Durango. Todos los derechos reservados.</p>
+      <p className="mt-1">
+        Desarrollado por el Departamento de Sistemas y Computación. Ver 3.2
+      </p>
+    </div>
   </footer>
 );
 

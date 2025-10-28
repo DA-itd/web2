@@ -1,11 +1,17 @@
-// Estas URLs apuntan a los archivos "raw" en GitHub para asegurar que se descargue el contenido correcto
-// en lugar de una página de visualización de GitHub.
-export const ITD_LOGO_URL = 'https://raw.githubusercontent.com/DA-itd/web2/main/image.jpg';
-export const TECNM_LOGO_URL = 'https://raw.githubusercontent.com/DA-itd/web2/main/TecNM_logo.jpg';
+// URLs apuntando al nuevo repositorio del usuario en GitHub.
+// Es crucial que estos archivos existan en la rama 'main' del repositorio.
+export const DATABASE_URL = 'https://raw.githubusercontent.com/DA-itd/DA-itd-web/main/database.xlsx';
+export const ITD_LOGO_URL = 'https://raw.githubusercontent.com/DA-itd/DA-itd-web/main/image.jpg';
+export const TECNM_LOGO_URL = 'https://raw.githubusercontent.com/DA-itd/DA-itd-web/main/TecNM_logo.jpg';
 
-export const DATABASE_URL = 'https://raw.githubusercontent.com/DA-itd/web2/main/database.xlsx';
-
+// Nombres de columna que podrían contener el folio en el archivo Excel.
+// El sistema buscará una columna con alguno de estos nombres (ignorando mayúsculas/minúsculas y espacios).
 export const POTENTIAL_FOLIO_HEADERS = [
-  'folio', 'id', 'clave', 'constancia', 'folio de constancia',
-  'folio constancia', 'no. folio', 'número de folio', 'num folio', 'folio certificado',
+    'Folio',
+    'ID',
+    'Folio del certificado',
+    'Folio de la constancia',
+    'No. de Folio',
+    '# Folio',
+    'folio'
 ];
