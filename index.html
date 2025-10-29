@@ -11,6 +11,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+    
     <style>
         @keyframes fade-in {
             from { opacity: 0; transform: translateY(-10px); }
@@ -20,7 +22,6 @@
         @keyframes spin { to { transform: rotate(360deg); } }
       .animate-spin { animation: spin 1s linear infinite; }
     </style>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body class="bg-slate-100">
     <div id="root"></div>
@@ -101,7 +102,7 @@
             audioCache[id] = sound;
         }
         sound.currentTime = 0;
-        sound.play().catch(error => console.error(`Error playing sound: ${id}`, error));
+        sound.play().catch(error => console.warn(`Advertencia al reproducir sonido (${id}):`, error.message));
     };
 
     // ============================================================================
@@ -167,8 +168,18 @@
             console.error("No se pudieron cargar los logos para el PDF:", error);
         }
 
+        // --- Marca de Agua ---
+        doc.setFontSize(100);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(230, 230, 230);
+        doc.setGState(new doc.GState({opacity: 0.5})); 
+        doc.text("VALIDO", 105, 160, { align: 'center', angle: 45 });
+        doc.setGState(new doc.GState({opacity: 1})); 
+
+        // --- Encabezado ---
         doc.setFont("helvetica", "bold");
         doc.setFontSize(11);
+        doc.setTextColor(0, 0, 0); 
         doc.text("TECNOLÓGICO NACIONAL DE MÉXICO", 105, 20, { align: 'center' });
         doc.text("INSTITUTO TECNOLÓGICO DE DURANGO", 105, 27, { align: 'center' });
         
@@ -182,6 +193,7 @@
         doc.setFontSize(18);
         doc.text(titleText, 105, 45, { align: 'center' });
         
+        // --- Datos del PDF ---
         const data = {
             'Folio': getFlexibleProperty(result, ['Folio', 'ID']),
             'Nombre del Titular': getFlexibleProperty(result, ['Nombre', 'Nombre del Titular']),
@@ -207,16 +219,70 @@
         y += 5;
         doc.setLineWidth(0.2);
         doc.line(20, y, 190, y);
-        y += 10;
+        y += 7; 
+
         doc.setFontSize(9);
-        doc.setTextColor(150, 150, 150);
-        const now = new Date();
-        doc.text("Este documento es una representación digital para la verificación de la constancia.", 105, y, { align: 'center' });
-        y += 5;
-        doc.text(`Generado el: ${now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}, ${now.toLocaleTimeString('es-ES')}`, 105, y, { align: 'center' });
+        doc.setTextColor(100, 100, 100);
+        doc.setFont("helvetica", "bold");
+        doc.text("SELLO DE VERIFICACIÓN DIGITAL", 20, y);
+
+        // --- INICIO: Lógica del QR con URL (La solución legible) ---
+        const fullFolio = getFlexibleProperty(result, ['Folio', 'ID']) || 'Certificado';
         
-        const folio = getFlexibleProperty(result, ['Folio', 'ID']) || 'Certificado';
-        doc.save(`Validacion-${folio}.pdf`);
+        // 1. Extraemos solo la parte variable (ej: "93-2025")
+        const partialFolio = fullFolio.toUpperCase().replace('TNM-054-', ''); 
+        
+        // 2. Creamos una URL directa a tu página de GitHub Pages
+        const validationUrl = `https://da-itd.github.io/web2/?folio=${partialFolio}`; 
+        
+        // 3. El QR solo contendrá esta URL. Es corta y muy fácil de leer.
+        const qrText = validationUrl; 
+        
+        const qrSize = 30;
+        // --- FIN: Lógica del QR ---
+
+        try {
+            if (typeof window.QRious === 'undefined') {
+                console.warn("Librería QRious no cargada. No se generará el QR.");
+                doc.setFontSize(8);
+                doc.setTextColor(255, 0, 0);
+                doc.text("Error: No se pudo generar el sello QR.", 20, y + 15);
+            } else {
+                const qr = new window.QRious({
+                    value: qrText,
+                    size: 250, 
+                    level: 'L' // Nivel 'Low' (Bajo) para máxima legibilidad
+                });
+                const qrDataURL = qr.toDataURL('image/png');
+                doc.addImage(qrDataURL, 'PNG', 20, y + 3, qrSize, qrSize);
+            }
+        } catch (qrError) {
+            console.error("Hubo un error al generar el código QR:", qrError);
+            doc.setFontSize(8);
+            doc.setTextColor(255, 0, 0);
+            doc.text("Error al crear QR.", 20, y + 15);
+        }
+        
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.setFont("helvetica", "normal");
+        
+        const textX = 20 + qrSize + 5; 
+        let textY = y + 9;
+        
+        // --- Texto de ayuda (Actualizado para la URL) ---
+        doc.text("Escanear el QR para verificar la autenticidad", textX, textY);
+        doc.text("del documento en el sitio oficial.", textX, textY + 4);
+        
+        const now = new Date();
+        doc.text(`Generado el: ${now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}`, textX, textY + 10);
+        doc.text(`Hora: ${now.toLocaleTimeString('es-ES')}`, textX, textY + 14);
+        
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Folio Verificado: ${fullFolio}`, textX, textY + 20);
+
+        doc.save(`Validacion-${fullFolio}.pdf`);
     };
 
     // ============================================================================
@@ -259,10 +325,15 @@
         const sheetJson = dataRows
           .filter(row => Array.isArray(row) && row.some(cell => String(cell || '').trim() !== ''))
           .map(row => {
-            const record = {};
-            headers.forEach((header, i) => { if (header && i < row.length) record[header] = row[i]; });
+            const record = headers.reduce((acc, header, i) => {
+              if (header && i < row.length && row[i] !== undefined && row[i] !== null) {
+                acc[header] = row[i];
+              }
+              return acc;
+            }, {});
             return record;
           });
+          
         allData = allData.concat(sheetJson);
       });
       return allData;
@@ -340,6 +411,7 @@
         try {
           await generatePdf(result);
         } catch (error) {
+          console.error("Error al generar PDF: ", error); 
           alert("Hubo un error al generar el PDF.");
         } finally {
           setIsGeneratingPdf(false);
@@ -409,19 +481,50 @@
       const [status, setStatus] = useState(ValidationStatus.IDLE);
       const [result, setResult] = useState(null);
 
+      // --- INICIO: Lógica para leer la URL al cargar ---
       useEffect(() => {
         (async () => {
           try {
             setError(null);
             setLoading(true);
-            setCertificateData(await loadDatabase());
+            const db = await loadDatabase(); // 1. Cargamos la DB
+            setCertificateData(db);
+
+            // 2. Verificamos si la URL trae un folio
+            const params = new URLSearchParams(window.location.search);
+            const folioFromUrl = params.get('folio');
+            
+            if (folioFromUrl) {
+              setQuery(folioFromUrl); // 3. Ponemos el folio en la barra
+
+              // 4. Hacemos la búsqueda automáticamente
+              const cleanedQuery = folioFromUrl.trim().toLowerCase();
+              const found = db.find(record => {
+                const folio = getFlexibleProperty(record, POTENTIAL_FOLIO_HEADERS);
+                return folio && String(folio).trim().toLowerCase().endsWith(cleanedQuery);
+              });
+
+              if (found) {
+                // 5. Si se encuentra, mostramos el resultado
+                const fullFolio = `TNM-054-${folioFromUrl.trim().toUpperCase()}`;
+                setResult({ ...found, 'Folio': fullFolio });
+                setStatus(ValidationStatus.SUCCESS);
+                playSound('beep-success');
+              } else {
+                // 6. Si no, mostramos el error
+                setResult(null);
+                setStatus(ValidationStatus.NOT_FOUND);
+                playSound('beep-fail');
+              }
+            }
           } catch (e) {
             setError(e.message);
           } finally {
             setLoading(false);
           }
         })();
-      }, []);
+      }, []); // Se ejecuta solo una vez al cargar la página
+      // --- FIN: Lógica para leer la URL ---
 
       const handleSearch = useCallback((searchQuery) => {
         if (!searchQuery || certificateData.length === 0) {
@@ -447,13 +550,13 @@
         }
       }, [certificateData]);
 
-      const handleClear = useCallback(() => {
+    const handleClear = useCallback(() => {
         setQuery('');
         setStatus(ValidationStatus.IDLE);
         setResult(null);
-      }, []);
+    }, []);
 
-      const renderContent = () => {
+    const renderContent = () => {
         if (loading) return <p className="text-gray-600 p-8">Cargando base de datos...</p>;
         if (error) return <p className="text-red-600 p-8">{error}</p>;
         return (
@@ -462,23 +565,22 @@
                 <ValidationResult status={status} result={result} />
             </React.Fragment>
         );
-      };
+    };
 
-      return (
+    return (
         <div className="min-h-screen flex flex-col items-center">
-          <Header />
-          <main className="flex-grow container mx-auto p-4 sm:p-6 w-full flex flex-col items-center">
-            {renderContent()}
-          </main>
-          <Footer />
+            <Header />
+            <main className="flex-grow container mx-auto p-4 sm:p-6 w-full flex flex-col items-center">
+                {renderContent()}
+            </main>
+            <Footer />
         </div>
-      );
+    );
     };
     
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
 
     </script>
-<script type="module" src="/index.tsx"></script>
 </body>
 </html>
